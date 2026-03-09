@@ -1,0 +1,23 @@
+{
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8000,
+    "mode": "claude-to-openai",
+    "logLevel": "info"
+  },
+  "providers": {
+    "openai": {
+      "baseUrl": "https://gmn.chuangzuoli.com/v1",
+      "defaultHeaders": {
+        "user-agent": "co2-local-test/0.1 curl-compatible"
+      }
+    }
+  },
+  "routing": {
+    "defaultOpenAIModel": "gpt-5.4",
+    "defaultClaudeModel": "claude-opus-4.6"
+  },
+  "modelMap": {
+    "claude-opus-4.6": "gpt-5.4"
+  }
+}
