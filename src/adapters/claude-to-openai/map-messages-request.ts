@@ -69,18 +69,20 @@ function normalizeMessages(parsed: ReturnType<typeof claudeMessagesSchema.parse>
 
 export function normalizeClaudeMessagesRequest(body: unknown, mode: RuntimeConfig['server']['mode'], requestId: string): NormalizedRequest {
   const parsed = claudeMessagesSchema.parse(body)
+  const normalizedTools = (parsed.tools ?? []).map((tool) => ({
+    name: tool.name,
+    description: tool.description,
+    inputSchema: tool.input_schema,
+  }))
+
   return {
     mode,
     contract: 'messages',
     transport: parsed.stream ? 'sse' : 'json',
     model: parsed.model,
     messages: normalizeMessages(parsed),
-    tools: (parsed.tools ?? []).map((tool) => ({
-      name: tool.name,
-      description: tool.description,
-      inputSchema: tool.input_schema,
-    })),
-    toolChoice: normalizeToolChoice(parsed.tool_choice),
+    tools: normalizedTools,
+    toolChoice: normalizeToolChoice(parsed.tool_choice) ?? (normalizedTools.length > 0 ? 'auto' : undefined),
     maxOutputTokens: parsed.max_tokens,
     temperature: parsed.temperature,
     stopSequences: parsed.stop_sequences,

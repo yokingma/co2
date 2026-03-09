@@ -64,18 +64,20 @@ function normalizeInputItems(input: string | ReturnType<typeof openAIResponsesSc
 
 export function normalizeOpenAIResponsesRequest(body: unknown, mode: RuntimeConfig['server']['mode'], requestId: string): NormalizedRequest {
   const parsed = openAIResponsesSchema.parse(body)
+  const normalizedTools = (parsed.tools ?? []).map((tool) => ({
+    name: tool.name,
+    description: tool.description,
+    inputSchema: tool.parameters ?? { type: 'object', properties: {} },
+  }))
+
   return {
     mode,
     contract: 'responses',
     transport: parsed.stream ? 'sse' : 'json',
     model: parsed.model,
     messages: normalizeInputItems(parsed.input),
-    tools: (parsed.tools ?? []).map((tool) => ({
-      name: tool.name,
-      description: tool.description,
-      inputSchema: tool.parameters ?? { type: 'object', properties: {} },
-    })),
-    toolChoice: normalizeToolChoice(parsed.tool_choice),
+    tools: normalizedTools,
+    toolChoice: normalizeToolChoice(parsed.tool_choice) ?? (normalizedTools.length > 0 ? 'auto' : undefined),
     maxOutputTokens: parsed.max_output_tokens,
     temperature: parsed.temperature,
     instructions: parsed.instructions,

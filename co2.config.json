@@ -9,7 +9,7 @@
     "openai": {
       "baseUrl": "https://gmn.chuangzuoli.com/v1",
       "defaultHeaders": {
-        "user-agent": "co2-local-test/0.1 curl-compatible"
+        "user-agent": "co2-proxy/0.1.0"
       }
     }
   },

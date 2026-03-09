@@ -138,4 +138,47 @@ describe('o2c chat completions', () => {
     expect(createMessage).not.toHaveBeenCalled()
     await server.close()
   })
+
+  it('defaults tool_choice to auto for chat requests with tools', async () => {
+    const createMessage = vi.fn(async () => ({
+      id: 'msg_chat_auto_tool_choice',
+      type: 'message',
+      role: 'assistant',
+      model: 'claude-sonnet-4-20250514',
+      content: [{ type: 'text', text: 'ok' }],
+      stop_reason: 'end_turn',
+      stop_sequence: null,
+      usage: { input_tokens: 1, output_tokens: 1 },
+    }))
+
+    const server = createServer(createRuntimeConfig('openai-to-claude'), {
+      logger: createSilentLogger(),
+      claudeClient: createClaudeClient({ createMessage }),
+      openAIClient: createOpenAIClient({}),
+    })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      payload: {
+        model: 'gpt-4.1',
+        messages: [{ role: 'user', content: 'hello' }],
+        tools: [{
+          type: 'function',
+          function: {
+            name: 'get_weather',
+            parameters: { type: 'object' },
+          },
+        }],
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(createMessage).toHaveBeenCalled()
+    expect(createMessage.mock.calls[0][0].tool_choice).toEqual({
+      type: 'auto',
+      disable_parallel_tool_use: true,
+    })
+    await server.close()
+  })
 })

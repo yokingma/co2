@@ -19,3 +19,6 @@
 - 补强路由失败日志：记录安全的错误上下文，包括方法、URL、body 顶层 keys、关键请求头摘要与 Zod issue 列表。
 - 增加上游请求摘要日志：在调用 OpenAI / Anthropic 上游前输出安全的参数摘要，便于定位具体是哪组映射参数触发上游错误。
 - 修正根 `README.md` 的开发模式命令，改为实际可运行的 `pnpm exec tsx ... start ...` 用法。
+- 增加完整上游请求体日志：在调用 OpenAI / Anthropic 上游前输出脱敏前的完整请求结构，便于和客户端直连请求做逐字段对比。
+- 调整 `tool_choice` 默认行为：当请求包含 `tools` 且未显式指定时，自动补 `auto`。
+- 调整 OpenAI Responses function tools 的默认 `strict` 标志为 `false`，以贴近真实客户端实现与常见兼容实现。

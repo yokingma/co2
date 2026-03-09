@@ -115,6 +115,44 @@ describe('c2o messages', () => {
     expect(response.statusCode).toBe(200)
     expect(createResponse).toHaveBeenCalled()
     expect(createResponse.mock.calls[0][0].reasoning).toEqual({ effort: 'medium' })
+    expect(createResponse.mock.calls[0][0].tool_choice).toBeUndefined()
+    await server.close()
+  })
+
+  it('defaults tool_choice to auto when Claude tools are present', async () => {
+    const createResponse = vi.fn(async (request) => ({
+      id: 'resp_message_auto_tool_choice',
+      object: 'response',
+      status: 'completed',
+      model: request.model,
+      output: [{
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: 'ok' }],
+      }],
+      usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+    }))
+
+    const server = createServer(createRuntimeConfig('claude-to-openai'), {
+      logger: createSilentLogger(),
+      claudeClient: createClaudeClient({}),
+      openAIClient: createOpenAIClient({ createResponse }),
+    })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/messages',
+      payload: {
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 128,
+        tools: [{ name: 'get_weather', input_schema: { type: 'object' } }],
+        messages: [{ role: 'user', content: 'call tool' }],
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(createResponse).toHaveBeenCalled()
+    expect(createResponse.mock.calls[0][0].tool_choice).toBe('auto')
     await server.close()
   })
 

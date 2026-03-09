@@ -60,6 +60,13 @@
 - 支持文本消息、核心工具回合，以及 `thinking -> reasoning` 请求映射
 - 支持 `tool_use / tool_result` 往返映射
 
+## `tool_choice` 默认行为
+
+- 当请求中包含 `tools` 且未显式传入 `tool_choice` 时，网关会自动补默认值 `auto`
+- `c2o` 路径会把 Claude `messages` 请求转换为 OpenAI `responses`，并默认补 `tool_choice: "auto"`
+- `o2c` 路径会把 OpenAI `chat/responses` 请求转换为 Claude `messages`，并默认补 Claude 风格的 `tool_choice: { "type": "auto", "disable_parallel_tool_use": true }`
+- 当前 `V1` 的 OpenAI Responses function tools 默认使用 `strict: false`，以贴近更常见的兼容实现
+
 ## 当前限制
 
 以下能力不在 `V1`：

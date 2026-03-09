@@ -134,6 +134,22 @@ function logUpstreamRequestSummary(
   })
 }
 
+function logUpstreamRequestBody(
+  logger: Logger,
+  message: string,
+  requestId: string,
+  upstreamProvider: 'openai' | 'anthropic',
+  upstreamPath: string,
+  body: Record<string, unknown>,
+): void {
+  logger.info(message, {
+    requestId,
+    upstreamProvider,
+    upstreamPath,
+    body,
+  })
+}
+
 function sendOpenAIError(reply: FastifyReply, requestId: string, error: unknown): FastifyReply {
   const gatewayError = toGatewayError(error)
   setCommonHeaders(reply, requestId)
@@ -194,6 +210,7 @@ export function registerRoutes(
         const normalized = normalizeOpenAIChatRequest(request.body, config.server.mode, requestId)
         const upstreamRequest = mapOpenAIChatToClaudeRequest(config, normalized)
         logUpstreamRequestSummary(logger, 'Claude upstream request summary', requestId, summarizeClaudeUpstreamRequest(upstreamRequest))
+        logUpstreamRequestBody(logger, 'Claude upstream request body', requestId, 'anthropic', '/v1/messages', upstreamRequest as Record<string, unknown>)
         if (normalized.transport === 'sse') {
           const upstreamStream = await claudeClient.streamMessage(upstreamRequest)
           await streamReply(reply, requestId, encodeClaudeStreamToOpenAIChat(upstreamStream, requestId, normalized.model))
@@ -218,6 +235,7 @@ export function registerRoutes(
         const normalized = normalizeOpenAIResponsesRequest(request.body, config.server.mode, requestId)
         const upstreamRequest = mapOpenAIResponsesToClaudeRequest(config, normalized)
         logUpstreamRequestSummary(logger, 'Claude upstream request summary', requestId, summarizeClaudeUpstreamRequest(upstreamRequest))
+        logUpstreamRequestBody(logger, 'Claude upstream request body', requestId, 'anthropic', '/v1/messages', upstreamRequest as Record<string, unknown>)
         if (normalized.transport === 'sse') {
           const upstreamStream = await claudeClient.streamMessage(upstreamRequest)
           await streamReply(reply, requestId, encodeClaudeStreamToOpenAIResponses(upstreamStream, requestId, normalized.model))
@@ -244,6 +262,7 @@ export function registerRoutes(
         const normalized = normalizeClaudeMessagesRequest(request.body, config.server.mode, requestId)
         const upstreamRequest = mapClaudeMessagesToOpenAIResponsesRequest(config, normalized)
         logUpstreamRequestSummary(logger, 'OpenAI upstream request summary', requestId, summarizeOpenAIResponsesRequest(upstreamRequest))
+        logUpstreamRequestBody(logger, 'OpenAI upstream request body', requestId, 'openai', '/v1/responses', upstreamRequest as Record<string, unknown>)
         if (normalized.transport === 'sse') {
           const upstreamStream = await openAIClient.streamResponse(upstreamRequest)
           await streamReply(reply, requestId, encodeOpenAIResponsesStreamToClaude(upstreamStream, requestId, normalized.model))

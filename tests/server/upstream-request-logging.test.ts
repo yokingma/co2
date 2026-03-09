@@ -72,10 +72,34 @@ describe('upstream request summary logging', () => {
       hasInstructions: true,
       toolCount: 1,
       toolNames: ['get_weather'],
+      toolChoice: 'auto',
       hasReasoning: true,
       reasoningEffort: 'medium',
       inputItemTypes: ['message'],
       inputRoles: ['user'],
+    })
+
+    const bodyLogEntry = entries.find((entry) => entry.message === 'OpenAI upstream request body')
+    expect(bodyLogEntry).toBeDefined()
+    expect(bodyLogEntry?.data).toMatchObject({
+      upstreamProvider: 'openai',
+      upstreamPath: '/v1/responses',
+      body: {
+        model: 'gpt-4.1',
+        instructions: 'You are concise.',
+        max_output_tokens: 2048,
+        stream: false,
+        tool_choice: 'auto',
+        reasoning: {
+          effort: 'medium',
+        },
+        tools: [
+          {
+            type: 'function',
+            name: 'get_weather',
+          },
+        ],
+      },
     })
 
     await server.close()

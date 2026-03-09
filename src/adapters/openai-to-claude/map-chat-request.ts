@@ -58,18 +58,20 @@ function normalizeMessages(messages: ReturnType<typeof openAIChatCompletionsSche
 
 export function normalizeOpenAIChatRequest(body: unknown, mode: RuntimeConfig['server']['mode'], requestId: string): NormalizedRequest {
   const parsed = openAIChatCompletionsSchema.parse(body)
+  const normalizedTools = (parsed.tools ?? []).map((tool) => ({
+    name: tool.function.name,
+    description: tool.function.description,
+    inputSchema: tool.function.parameters ?? { type: 'object', properties: {} },
+  }))
+
   return {
     mode,
     contract: 'chat-completions',
     transport: parsed.stream ? 'sse' : 'json',
     model: parsed.model,
     messages: normalizeMessages(parsed.messages),
-    tools: (parsed.tools ?? []).map((tool) => ({
-      name: tool.function.name,
-      description: tool.function.description,
-      inputSchema: tool.function.parameters ?? { type: 'object', properties: {} },
-    })),
-    toolChoice: normalizeToolChoice(parsed.tool_choice),
+    tools: normalizedTools,
+    toolChoice: normalizeToolChoice(parsed.tool_choice) ?? (normalizedTools.length > 0 ? 'auto' : undefined),
     maxOutputTokens: parsed.max_completion_tokens,
     temperature: parsed.temperature,
     stopSequences: normalizeStopSequences(parsed.stop),
