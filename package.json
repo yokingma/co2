@@ -1,17 +1,48 @@
 {
-  "name": "co2",
+  "name": "@fastagent/co2",
   "version": "0.1.0",
-  "private": true,
+  "description": "CLI gateway for translating OpenAI and Claude protocols.",
+  "private": false,
   "type": "module",
+  "license": "MIT",
   "packageManager": "pnpm@10.31.0",
+  "homepage": "https://cnb.cool/qijia/co2",
+  "repository": {
+    "type": "git",
+    "url": "https://cnb.cool/qijia/co2"
+  },
+  "bugs": {
+    "url": "https://cnb.cool/qijia/co2"
+  },
+  "keywords": [
+    "cli",
+    "openai",
+    "anthropic",
+    "gateway",
+    "proxy"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
   "bin": {
     "co2": "dist/cli/index.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
-    "dev": "tsx src/cli/index.ts",
-    "start": "node dist/cli/index.js",
+    "dev": "tsx src/cli/index.ts start",
+    "prepack": "pnpm build",
+    "prepublishOnly": "pnpm test && pnpm check",
+    "start": "node dist/cli/index.js start",
     "test": "vitest run"
   },
   "dependencies": {
