@@ -40,6 +40,43 @@ describe('c2o messages', () => {
     await server.close()
   })
 
+  it('accepts extra Claude control-plane fields without failing validation', async () => {
+    const createResponse = vi.fn(async (request) => ({
+      id: 'resp_message_compatible_fields',
+      object: 'response',
+      status: 'completed',
+      model: request.model,
+      output: [{
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: 'claude compatible' }],
+      }],
+      usage: { input_tokens: 8, output_tokens: 4, total_tokens: 12 },
+    }))
+
+    const server = createServer(createRuntimeConfig('claude-to-openai'), {
+      logger: createSilentLogger(),
+      claudeClient: createClaudeClient({}),
+      openAIClient: createOpenAIClient({ createResponse }),
+    })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/messages',
+      payload: {
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 128,
+        messages: [{ role: 'user', content: 'hello' }],
+        metadata: { user_id: 'opaque-user-id' },
+        container: 'container_123',
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(createResponse).toHaveBeenCalled()
+    await server.close()
+  })
+
   it('maps OpenAI function_call output to Claude tool_use', async () => {
     const server = createServer(createRuntimeConfig('claude-to-openai'), {
       logger: createSilentLogger(),
@@ -119,6 +156,59 @@ describe('c2o messages', () => {
     await server.close()
   })
 
+  it('encodes assistant history messages as output_text for OpenAI responses input', async () => {
+    const createResponse = vi.fn(async (request) => ({
+      id: 'resp_message_assistant_history',
+      object: 'response',
+      status: 'completed',
+      model: request.model,
+      output: [{
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: 'ok' }],
+      }],
+      usage: { input_tokens: 3, output_tokens: 1, total_tokens: 4 },
+    }))
+
+    const server = createServer(createRuntimeConfig('claude-to-openai'), {
+      logger: createSilentLogger(),
+      claudeClient: createClaudeClient({}),
+      openAIClient: createOpenAIClient({ createResponse }),
+    })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/messages',
+      payload: {
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 128,
+        messages: [
+          { role: 'user', content: '你好' },
+          { role: 'assistant', content: '老大，您好！' },
+          { role: 'user', content: '你是谁' },
+        ],
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(createResponse).toHaveBeenCalled()
+    expect(createResponse.mock.calls[0][0].input).toEqual([
+      {
+        role: 'user',
+        content: [{ type: 'input_text', text: '你好' }],
+      },
+      {
+        role: 'assistant',
+        content: [{ type: 'output_text', text: '老大，您好！' }],
+      },
+      {
+        role: 'user',
+        content: [{ type: 'input_text', text: '你是谁' }],
+      },
+    ])
+    await server.close()
+  })
+
   it('defaults tool_choice to auto when Claude tools are present', async () => {
     const createResponse = vi.fn(async (request) => ({
       id: 'resp_message_auto_tool_choice',
@@ -153,6 +243,125 @@ describe('c2o messages', () => {
     expect(response.statusCode).toBe(200)
     expect(createResponse).toHaveBeenCalled()
     expect(createResponse.mock.calls[0][0].tool_choice).toBe('auto')
+    expect((createResponse.mock.calls[0][0] as Record<string, unknown>).parallel_tool_calls).toBe(false)
+    await server.close()
+  })
+
+  it('maps top_p to OpenAI responses sampling', async () => {
+    const createResponse = vi.fn(async (request) => ({
+      id: 'resp_message_top_p',
+      object: 'response',
+      status: 'completed',
+      model: request.model,
+      output: [{
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: 'ok' }],
+      }],
+      usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+    }))
+
+    const server = createServer(createRuntimeConfig('claude-to-openai'), {
+      logger: createSilentLogger(),
+      claudeClient: createClaudeClient({}),
+      openAIClient: createOpenAIClient({ createResponse }),
+    })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/messages',
+      payload: {
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 128,
+        top_p: 0.4,
+        messages: [{ role: 'user', content: 'hello' }],
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect((createResponse.mock.calls[0][0] as Record<string, unknown>).top_p).toBe(0.4)
+    await server.close()
+  })
+
+  it('can send configured default OpenAI reasoning effort', async () => {
+    const createResponse = vi.fn(async (request) => ({
+      id: 'resp_message_default_reasoning',
+      object: 'response',
+      status: 'completed',
+      model: request.model,
+      output: [{
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: 'ok' }],
+      }],
+      usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+    }))
+
+    const runtimeConfig = createRuntimeConfig('claude-to-openai')
+    runtimeConfig.routing.openAIReasoningEffort = 'high'
+
+    const server = createServer(runtimeConfig, {
+      logger: createSilentLogger(),
+      claudeClient: createClaudeClient({}),
+      openAIClient: createOpenAIClient({ createResponse }),
+    })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/messages',
+      payload: {
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 128,
+        messages: [{ role: 'user', content: 'hello' }],
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(createResponse).toHaveBeenCalled()
+    expect((createResponse.mock.calls[0][0] as Record<string, unknown>).reasoning).toEqual({ effort: 'high' })
+    await server.close()
+  })
+
+  it('prefers request thinking over configured default OpenAI reasoning effort', async () => {
+    const createResponse = vi.fn(async (request) => ({
+      id: 'resp_message_request_reasoning',
+      object: 'response',
+      status: 'completed',
+      model: request.model,
+      output: [{
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: 'ok' }],
+      }],
+      usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+    }))
+
+    const runtimeConfig = createRuntimeConfig('claude-to-openai')
+    runtimeConfig.routing.openAIReasoningEffort = 'high'
+
+    const server = createServer(runtimeConfig, {
+      logger: createSilentLogger(),
+      claudeClient: createClaudeClient({}),
+      openAIClient: createOpenAIClient({ createResponse }),
+    })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/messages',
+      payload: {
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 128,
+        thinking: {
+          type: 'enabled',
+          budget_tokens: 2048,
+        },
+        messages: [{ role: 'user', content: 'hello' }],
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(createResponse).toHaveBeenCalled()
+    expect((createResponse.mock.calls[0][0] as Record<string, unknown>).reasoning).toEqual({ effort: 'medium' })
     await server.close()
   })
 
@@ -202,6 +411,81 @@ describe('c2o messages', () => {
 
     expect(response.statusCode).toBe(200)
     expect(response.json().content[0].text).toBe('final answer')
+    await server.close()
+  })
+
+  it('rejects top_k because there is no accurate OpenAI Responses equivalent in V1', async () => {
+    const createResponse = vi.fn(async () => ({
+      id: 'resp_message_top_k',
+      object: 'response',
+      status: 'completed',
+      model: 'gpt-4.1',
+      output: [{
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: 'unexpected' }],
+      }],
+      usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+    }))
+
+    const server = createServer(createRuntimeConfig('claude-to-openai'), {
+      logger: createSilentLogger(),
+      claudeClient: createClaudeClient({}),
+      openAIClient: createOpenAIClient({ createResponse }),
+    })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/messages',
+      payload: {
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 128,
+        top_k: 5,
+        messages: [{ role: 'user', content: 'hello' }],
+      },
+    })
+
+    expect(response.statusCode).toBe(400)
+    expect(response.json().type).toBe('error')
+    expect(response.json().error.message).toContain('top_k')
+    expect(createResponse).not.toHaveBeenCalled()
+    await server.close()
+  })
+
+  it('rejects unknown top-level fields instead of silently ignoring typos', async () => {
+    const createResponse = vi.fn(async () => ({
+      id: 'resp_message_unknown_field',
+      object: 'response',
+      status: 'completed',
+      model: 'gpt-4.1',
+      output: [{
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: 'unexpected' }],
+      }],
+      usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+    }))
+
+    const server = createServer(createRuntimeConfig('claude-to-openai'), {
+      logger: createSilentLogger(),
+      claudeClient: createClaudeClient({}),
+      openAIClient: createOpenAIClient({ createResponse }),
+    })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/messages',
+      payload: {
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 128,
+        messages: [{ role: 'user', content: 'hello' }],
+        thinkingg: { type: 'adaptive' },
+      },
+    })
+
+    expect(response.statusCode).toBe(400)
+    expect(response.json().error.message).toContain('Unrecognized key')
+    expect(createResponse).not.toHaveBeenCalled()
     await server.close()
   })
 

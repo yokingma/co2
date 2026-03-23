@@ -12,14 +12,19 @@ const modeSchema = z.enum(['openai-to-claude', 'claude-to-openai'])
 const logLevelSchema = z.enum(['debug', 'info', 'warn', 'error'])
 const portSchema = z.number().int().min(1).max(65535)
 const defaultHeadersSchema = z.record(z.string().min(1), z.string())
+const claudeOutputEffortSchema = z.enum(['low', 'medium', 'high', 'max'])
+const emptyEnvStringToUndefined = (value: unknown): unknown => value === '' ? undefined : value
+const optionalEnvStringSchema = z.preprocess(emptyEnvStringToUndefined, z.string().min(1).optional())
+const optionalEnvUrlSchema = z.preprocess(emptyEnvStringToUndefined, z.string().url().optional())
 
 export const envSchema = z.object({
-  OPENAI_API_KEY: z.string().min(1).optional(),
-  OPENAI_BASE_URL: z.string().url().optional(),
-  ANTHROPIC_API_KEY: z.string().min(1).optional(),
-  ANTHROPIC_BASE_URL: z.string().url().optional(),
-  ANTHROPIC_VERSION: z.string().min(1).optional(),
-  CO2_CONFIG: z.string().min(1).optional(),
+  OPENAI_API_KEY: optionalEnvStringSchema,
+  OPENAI_BASE_URL: optionalEnvUrlSchema,
+  ANTHROPIC_API_KEY: optionalEnvStringSchema,
+  ANTHROPIC_AUTH_TOKEN: optionalEnvStringSchema,
+  ANTHROPIC_BASE_URL: optionalEnvUrlSchema,
+  ANTHROPIC_VERSION: optionalEnvStringSchema,
+  CO2_CONFIG: optionalEnvStringSchema,
 })
 
 export const configFileSchema = z.strictObject({
@@ -54,6 +59,8 @@ export const configFileSchema = z.strictObject({
     .strictObject({
       defaultOpenAIModel: z.string().min(1).optional(),
       defaultClaudeModel: z.string().min(1).optional(),
+      claudeOutputEffort: claudeOutputEffortSchema.optional(),
+      openAIReasoningEffort: z.string().min(1).optional(),
     })
     .optional(),
   modelMap: z.record(z.string().min(1), z.string().min(1)).optional(),
@@ -82,6 +89,8 @@ export const runtimeConfigSchema = z.strictObject({
   routing: z.strictObject({
     defaultOpenAIModel: z.string().min(1).optional(),
     defaultClaudeModel: z.string().min(1).optional(),
+    claudeOutputEffort: claudeOutputEffortSchema.optional(),
+    openAIReasoningEffort: z.string().min(1).optional(),
   }),
   modelMap: z.record(z.string().min(1), z.string().min(1)),
 })

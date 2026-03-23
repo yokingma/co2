@@ -2,6 +2,7 @@ import { claudeMessagesSchema } from '../../schemas/claude/messages-schema.js'
 import { buildOpenAIResponsesRequest, createTextPart, mapClaudeThinkingToOpenAIReasoning, stringifyToolInput } from '../shared.js'
 import type { NormalizedContentPart, NormalizedMessage, NormalizedRequest, RuntimeConfig } from '../../shared/types.js'
 import type { ToolChoice } from '../../shared/contracts.js'
+import { createUnsupportedParameterError, createUnsupportedToolError } from '../../shared/errors.js'
 
 function normalizeToolChoice(toolChoice: ReturnType<typeof claudeMessagesSchema.parse>['tool_choice']): ToolChoice | undefined {
   if (!toolChoice || toolChoice.type === 'none') {
@@ -67,7 +68,29 @@ function normalizeMessages(parsed: ReturnType<typeof claudeMessagesSchema.parse>
   return messages
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function validateCompatibleClaudeMessagesRequest(body: unknown): void {
+  if (!isRecord(body)) {
+    return
+  }
+
+  if (body.top_k !== undefined) {
+    throw createUnsupportedParameterError('top_k is not supported because there is no accurate OpenAI Responses equivalent in V1', 'top_k')
+  }
+
+  const tools = Array.isArray(body.tools) ? body.tools : []
+  for (const tool of tools) {
+    if (isRecord(tool) && typeof tool.type === 'string') {
+      throw createUnsupportedToolError('Only client-defined tools are supported in V1')
+    }
+  }
+}
+
 export function normalizeClaudeMessagesRequest(body: unknown, mode: RuntimeConfig['server']['mode'], requestId: string): NormalizedRequest {
+  validateCompatibleClaudeMessagesRequest(body)
   const parsed = claudeMessagesSchema.parse(body)
   const normalizedTools = (parsed.tools ?? []).map((tool) => ({
     name: tool.name,
@@ -85,6 +108,7 @@ export function normalizeClaudeMessagesRequest(body: unknown, mode: RuntimeConfi
     toolChoice: normalizeToolChoice(parsed.tool_choice) ?? (normalizedTools.length > 0 ? 'auto' : undefined),
     maxOutputTokens: parsed.max_tokens,
     temperature: parsed.temperature,
+    topP: parsed.top_p,
     stopSequences: parsed.stop_sequences,
     reasoning: mapClaudeThinkingToOpenAIReasoning(parsed.thinking ? parsed.thinking.type === 'enabled' ? { type: 'enabled', budgetTokens: parsed.thinking.budget_tokens } : { type: parsed.thinking.type } : undefined),
     requestId,

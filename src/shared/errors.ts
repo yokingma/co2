@@ -100,6 +100,10 @@ export function createValidationError(message: string, param?: string): GatewayE
   return new GatewayError(message, 'validation_error', 400, 'validation_error', param)
 }
 
+export function createUnsupportedParameterError(message: string, param: string): GatewayError {
+  return new GatewayError(message, 'validation_error', 400, 'unsupported_parameter', param)
+}
+
 export function createConfigError(message: string, param?: string): GatewayError {
   return new GatewayError(message, 'config_error', 500, 'config_error', param)
 }

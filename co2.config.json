@@ -2,12 +2,18 @@
   "server": {
     "host": "127.0.0.1",
     "port": 8000,
-    "mode": "claude-to-openai",
+    "mode": "openai-to-claude",
     "logLevel": "info"
   },
   "providers": {
     "openai": {
-      "baseUrl": "https://gmn.chuangzuoli.com/v1",
+      "baseUrl": "https://api.openai.com/v1",
+      "defaultHeaders": {
+        "user-agent": "co2-proxy/0.1.0"
+      }
+    },
+    "anthropic": {
+      "baseUrl": "https://api.anthropic.com",
       "defaultHeaders": {
         "user-agent": "co2-proxy/0.1.0"
       }
@@ -15,9 +21,13 @@
   },
   "routing": {
     "defaultOpenAIModel": "gpt-5.4",
-    "defaultClaudeModel": "claude-opus-4.6"
+    "defaultClaudeModel": "claude-opus-4.6",
+    "openAIReasoningEffort": "high",
+    "claudeOutputEffort": "high"
+
   },
   "modelMap": {
-    "claude-opus-4.6": "gpt-5.4"
+    "claude-opus-4.6": "gpt-5.4",
+    "gpt-5.4": "claude-opus-4-6"
   }
 }

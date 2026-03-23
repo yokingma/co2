@@ -33,9 +33,26 @@ function resolveMode(cliInput: StartCommandInput, configInput: ConfigFileInput):
   throw createConfigError('Mode is required when not provided in config file', 'mode')
 }
 
+function resolveAnthropicApiKey(
+  envInput: ReturnType<typeof envSchema.parse>,
+  configInput: ConfigFileInput,
+): string | undefined {
+  const apiKey = envInput.ANTHROPIC_API_KEY
+  const authToken = envInput.ANTHROPIC_AUTH_TOKEN
+
+  if (apiKey && authToken && apiKey !== authToken) {
+    throw createConfigError(
+      'ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN must match when both are set',
+      'ANTHROPIC_AUTH_TOKEN',
+    )
+  }
+
+  return apiKey ?? authToken ?? configInput.providers?.anthropic?.apiKey
+}
+
 function assertRequiredKeys(config: RuntimeConfig): void {
   if (config.server.mode === 'openai-to-claude' && !config.providers.anthropic.apiKey) {
-    throw createConfigError('ANTHROPIC_API_KEY is required for o2c mode', 'ANTHROPIC_API_KEY')
+    throw createConfigError('ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN is required for o2c mode', 'ANTHROPIC_API_KEY')
   }
 
   if (config.server.mode === 'claude-to-openai' && !config.providers.openai.apiKey) {
@@ -64,7 +81,7 @@ export async function loadRuntimeConfig(input: unknown): Promise<RuntimeConfig> 
         defaultHeaders: validateProviderDefaultHeaders('openai', configInput.providers?.openai?.defaultHeaders ?? {}),
       },
       anthropic: {
-        apiKey: envInput.ANTHROPIC_API_KEY ?? configInput.providers?.anthropic?.apiKey,
+        apiKey: resolveAnthropicApiKey(envInput, configInput),
         baseUrl: envInput.ANTHROPIC_BASE_URL ?? configInput.providers?.anthropic?.baseUrl,
         version: envInput.ANTHROPIC_VERSION ?? configInput.providers?.anthropic?.version,
         defaultHeaders: validateProviderDefaultHeaders('anthropic', configInput.providers?.anthropic?.defaultHeaders ?? {}),
@@ -73,6 +90,8 @@ export async function loadRuntimeConfig(input: unknown): Promise<RuntimeConfig> 
     routing: {
       defaultOpenAIModel: configInput.routing?.defaultOpenAIModel,
       defaultClaudeModel: configInput.routing?.defaultClaudeModel,
+      claudeOutputEffort: configInput.routing?.claudeOutputEffort,
+      openAIReasoningEffort: configInput.routing?.openAIReasoningEffort,
     },
     modelMap: configInput.modelMap ?? {},
   })

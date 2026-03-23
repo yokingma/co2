@@ -92,6 +92,7 @@ function summarizeClaudeUpstreamRequest(request: ClaudeMessagesRequest): Record<
       request.thinking && request.thinking.type === 'enabled'
         ? request.thinking.budgetTokens
         : null,
+    outputEffort: request.output_config?.effort ?? null,
     stopSequenceCount: request.stop_sequences?.length ?? 0,
   }
 }
@@ -213,12 +214,12 @@ export function registerRoutes(
         logUpstreamRequestBody(logger, 'Claude upstream request body', requestId, 'anthropic', '/v1/messages', upstreamRequest as Record<string, unknown>)
         if (normalized.transport === 'sse') {
           const upstreamStream = await claudeClient.streamMessage(upstreamRequest)
-          await streamReply(reply, requestId, encodeClaudeStreamToOpenAIChat(upstreamStream, requestId, normalized.model))
+          await streamReply(reply, requestId, encodeClaudeStreamToOpenAIChat(upstreamStream, requestId, normalized.model, normalized.toolNameAliases))
           return reply
         }
         const upstreamResponse = await claudeClient.createMessage(upstreamRequest)
         setCommonHeaders(reply, requestId)
-        return reply.send(mapClaudeResponseToOpenAIChatResponse(upstreamResponse, normalized.model))
+        return reply.send(mapClaudeResponseToOpenAIChatResponse(upstreamResponse, normalized.model, normalized.toolNameAliases))
       } catch (error) {
         if (reply.raw.headersSent) {
           logRouteError(logger, 'Chat stream failed', request, requestId, error)
@@ -238,12 +239,12 @@ export function registerRoutes(
         logUpstreamRequestBody(logger, 'Claude upstream request body', requestId, 'anthropic', '/v1/messages', upstreamRequest as Record<string, unknown>)
         if (normalized.transport === 'sse') {
           const upstreamStream = await claudeClient.streamMessage(upstreamRequest)
-          await streamReply(reply, requestId, encodeClaudeStreamToOpenAIResponses(upstreamStream, requestId, normalized.model))
+          await streamReply(reply, requestId, encodeClaudeStreamToOpenAIResponses(upstreamStream, requestId, normalized.model, normalized.toolNameAliases))
           return reply
         }
         const upstreamResponse = await claudeClient.createMessage(upstreamRequest)
         setCommonHeaders(reply, requestId)
-        return reply.send(mapClaudeResponseToOpenAIResponsesResponse(upstreamResponse, normalized.model))
+        return reply.send(mapClaudeResponseToOpenAIResponsesResponse(upstreamResponse, normalized.model, normalized.toolNameAliases))
       } catch (error) {
         if (reply.raw.headersSent) {
           logRouteError(logger, 'Responses stream failed', request, requestId, error)

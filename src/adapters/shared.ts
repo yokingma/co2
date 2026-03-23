@@ -7,16 +7,20 @@ import type {
   NormalizedContentPart,
   NormalizedMessage,
   ClaudeThinkingConfig,
+  ClaudeOutputEffort,
   NormalizedRequest,
   NormalizedToolDefinition,
   OpenAIReasoningConfig,
+  OpenAIUpstreamReasoningConfig,
   OpenAIResponsesInputItem,
   OpenAIResponsesTool,
   OpenAIResponsesToolChoice,
   RuntimeConfig,
+  ToolNameAliases,
 } from '../shared/types.js'
 import type { ToolChoice } from '../shared/contracts.js'
 import { createMappingError } from '../shared/errors.js'
+import { toAnthropicToolName } from './openai-to-claude/tool-name-aliasing.js'
 
 export function resolveTargetModel(config: RuntimeConfig, sourceModel: string, mode: RuntimeConfig['server']['mode']): string {
   const mappedModel = config.modelMap[sourceModel]
@@ -70,7 +74,7 @@ export function createTextPart(text: string): NormalizedContentPart {
   }
 }
 
-export function toAnthropicToolChoice(toolChoice: ToolChoice | undefined): ClaudeToolChoice | undefined {
+export function toAnthropicToolChoice(toolChoice: ToolChoice | undefined, aliases?: ToolNameAliases): ClaudeToolChoice | undefined {
   if (!toolChoice) {
     return undefined
   }
@@ -89,7 +93,7 @@ export function toAnthropicToolChoice(toolChoice: ToolChoice | undefined): Claud
 
   return {
     type: 'tool',
-    name: toolChoice.name,
+    name: toAnthropicToolName(toolChoice.name, aliases),
     disable_parallel_tool_use: true,
   }
 }
@@ -108,7 +112,6 @@ export function toResponsesToolChoice(toolChoice: ToolChoice | undefined): OpenA
     name: toolChoice.name,
   }
 }
-
 
 function thinkingBudgetToReasoningEffort(budgetTokens: number): OpenAIReasoningConfig['effort'] {
   if (budgetTokens >= 8192) {
@@ -156,9 +159,53 @@ export function mapOpenAIReasoningToClaudeThinking(reasoning: OpenAIReasoningCon
   return { type: 'adaptive' }
 }
 
-export function normalizedToolsToAnthropicTools(tools: NormalizedToolDefinition[]): ClaudeToolDefinition[] {
+function mapOpenAIReasoningEffortToClaudeOutputEffort(
+  effort: OpenAIReasoningConfig['effort'] | undefined,
+): ClaudeOutputEffort | undefined {
+  switch (effort) {
+    case 'minimal':
+    case 'low':
+      return 'low'
+    case 'medium':
+      return 'medium'
+    case 'high':
+      return 'high'
+    case 'xhigh':
+      return 'max'
+    default:
+      return undefined
+  }
+}
+
+function resolveClaudeOutputEffort(
+  config: RuntimeConfig,
+  request: NormalizedRequest,
+): ClaudeOutputEffort | undefined {
+  if (!request.reasoning) {
+    return config.routing.claudeOutputEffort
+  }
+
+  return mapOpenAIReasoningEffortToClaudeOutputEffort(request.reasoning.effort)
+}
+
+function resolveOpenAIReasoning(
+  config: RuntimeConfig,
+  request: NormalizedRequest,
+): OpenAIUpstreamReasoningConfig | undefined {
+  if (request.reasoning) {
+    return request.reasoning
+  }
+
+  if (!config.routing.openAIReasoningEffort) {
+    return undefined
+  }
+
+  return { effort: config.routing.openAIReasoningEffort }
+}
+
+export function normalizedToolsToAnthropicTools(tools: NormalizedToolDefinition[], aliases?: ToolNameAliases): ClaudeToolDefinition[] {
   return tools.map((tool) => ({
-    name: tool.name,
+    name: toAnthropicToolName(tool.name, aliases),
     description: tool.description,
     input_schema: tool.inputSchema,
   }))
@@ -188,7 +235,11 @@ export function collectInstructions(messages: NormalizedMessage[], instructions?
   return allInstructions.join('\n\n')
 }
 
-function toAnthropicContentBlocks(parts: NormalizedContentPart[], role: 'user' | 'assistant'): string | ClaudeContentBlock[] {
+function toAnthropicContentBlocks(
+  parts: NormalizedContentPart[],
+  role: 'user' | 'assistant',
+  aliases?: ToolNameAliases,
+): string | ClaudeContentBlock[] {
   const blocks = parts.flatMap((part): ClaudeContentBlock[] => {
     if (part.type === 'text') {
       return [{ type: 'text', text: part.text }]
@@ -198,7 +249,7 @@ function toAnthropicContentBlocks(parts: NormalizedContentPart[], role: 'user' |
       return [{
         type: 'tool_use',
         id: part.id,
-        name: part.name,
+        name: toAnthropicToolName(part.name, aliases),
         input: parseToolArguments(part.argumentsJson),
       }]
     }
@@ -222,14 +273,14 @@ function toAnthropicContentBlocks(parts: NormalizedContentPart[], role: 'user' |
   return blocks
 }
 
-export function normalizedMessagesToAnthropicMessages(messages: NormalizedMessage[]): ClaudeMessage[] {
+export function normalizedMessagesToAnthropicMessages(messages: NormalizedMessage[], aliases?: ToolNameAliases): ClaudeMessage[] {
   return messages
     .filter((message) => message.role !== 'system')
     .map((message) => {
       const role = message.role === 'assistant' ? 'assistant' : 'user'
       return {
         role,
-        content: toAnthropicContentBlocks(message.parts, role),
+        content: toAnthropicContentBlocks(message.parts, role, aliases),
       }
     })
 }
@@ -242,7 +293,7 @@ function pushResponsesMessageItem(items: OpenAIResponsesInputItem[], role: 'user
 
   items.push({
     role,
-    content: [{ type: 'input_text', text }],
+    content: [{ type: role === 'assistant' ? 'output_text' : 'input_text', text }],
   })
 }
 
@@ -283,16 +334,20 @@ export function normalizedMessagesToResponsesInput(messages: NormalizedMessage[]
 }
 
 export function buildAnthropicMessagesRequest(config: RuntimeConfig, request: NormalizedRequest): ClaudeMessagesRequest {
+  const outputEffort = resolveClaudeOutputEffort(config, request)
+  const requestThinking = mapOpenAIReasoningToClaudeThinking(request.reasoning)
   return {
     model: resolveTargetModel(config, request.model, request.mode),
     max_tokens: request.maxOutputTokens ?? 1024,
-    messages: normalizedMessagesToAnthropicMessages(request.messages),
+    messages: normalizedMessagesToAnthropicMessages(request.messages, request.toolNameAliases),
     system: collectInstructions(request.messages, request.instructions),
-    tools: request.tools.length > 0 ? normalizedToolsToAnthropicTools(request.tools) : undefined,
-    tool_choice: toAnthropicToolChoice(request.toolChoice),
-    thinking: mapOpenAIReasoningToClaudeThinking(request.reasoning),
+    tools: request.tools.length > 0 ? normalizedToolsToAnthropicTools(request.tools, request.toolNameAliases) : undefined,
+    tool_choice: toAnthropicToolChoice(request.toolChoice, request.toolNameAliases),
+    thinking: requestThinking ?? (outputEffort ? { type: 'adaptive' } : undefined),
+    output_config: outputEffort ? { effort: outputEffort } : undefined,
     stream: request.transport === 'sse',
     temperature: request.temperature,
+    top_p: request.topP,
     stop_sequences: request.stopSequences,
   }
 }
@@ -305,9 +360,11 @@ export function buildOpenAIResponsesRequest(config: RuntimeConfig, request: Norm
     instructions: collectInstructions(request.messages, request.instructions),
     tools: request.tools.length > 0 ? normalizedToolsToResponsesTools(request.tools) : undefined,
     tool_choice: toResponsesToolChoice(request.toolChoice),
-    reasoning: request.reasoning,
+    reasoning: resolveOpenAIReasoning(config, request),
+    parallel_tool_calls: request.tools.length > 0 ? false : undefined,
     stream: request.transport === 'sse',
     max_output_tokens: request.maxOutputTokens,
     temperature: request.temperature,
+    top_p: request.topP,
   }
 }

@@ -1,8 +1,12 @@
 import { buildOpenAIChatCompletionResponse, createChatDoneChunk, createChatFinishChunk, createChatStartChunk, createChatTextChunk, createChatToolArgumentsChunk, createChatToolStartChunk } from '../../protocols/openai/chat-completions/response.js'
 import { createTextPart, stringifyToolInput } from '../shared.js'
-import type { ClaudeMessagesResponse, ClaudeStreamEvent, NormalizedResponse } from '../../shared/types.js'
+import type { ClaudeMessagesResponse, ClaudeStreamEvent, NormalizedResponse, ToolNameAliases } from '../../shared/types.js'
+import { fromAnthropicToolName } from './tool-name-aliasing.js'
 
-function contentBlocksToParts(content: ClaudeMessagesResponse['content']): NormalizedResponse['message']['parts'] {
+function contentBlocksToParts(
+  content: ClaudeMessagesResponse['content'],
+  toolNameAliases: ToolNameAliases | undefined,
+): NormalizedResponse['message']['parts'] {
   return content.flatMap((block) => {
     if (block.type === 'text') {
       return [createTextPart(block.text)]
@@ -12,7 +16,7 @@ function contentBlocksToParts(content: ClaudeMessagesResponse['content']): Norma
       return [{
         type: 'tool-call' as const,
         id: block.id,
-        name: block.name,
+        name: fromAnthropicToolName(block.name, toolNameAliases),
         argumentsJson: stringifyToolInput(block.input),
       }]
     }
@@ -21,14 +25,18 @@ function contentBlocksToParts(content: ClaudeMessagesResponse['content']): Norma
   })
 }
 
-export function mapClaudeResponseToOpenAIChatResponse(response: ClaudeMessagesResponse, publicModel: string): Record<string, unknown> {
+export function mapClaudeResponseToOpenAIChatResponse(
+  response: ClaudeMessagesResponse,
+  publicModel: string,
+  toolNameAliases?: ToolNameAliases,
+): Record<string, unknown> {
   return buildOpenAIChatCompletionResponse(
     {
       responseId: response.id,
       model: publicModel,
       message: {
         role: 'assistant',
-        parts: contentBlocksToParts(response.content),
+        parts: contentBlocksToParts(response.content, toolNameAliases),
       },
       finishReason: response.stop_reason ?? undefined,
       usage: response.usage
@@ -44,7 +52,12 @@ export function mapClaudeResponseToOpenAIChatResponse(response: ClaudeMessagesRe
   )
 }
 
-export async function* encodeClaudeStreamToOpenAIChat(stream: AsyncIterable<ClaudeStreamEvent>, responseId: string, publicModel: string): AsyncIterable<string> {
+export async function* encodeClaudeStreamToOpenAIChat(
+  stream: AsyncIterable<ClaudeStreamEvent>,
+  responseId: string,
+  publicModel: string,
+  toolNameAliases?: ToolNameAliases,
+): AsyncIterable<string> {
   const toolIndexes = new Map<number, number>()
   let nextToolIndex = 0
   let started = false
@@ -62,7 +75,13 @@ export async function* encodeClaudeStreamToOpenAIChat(stream: AsyncIterable<Clau
         const toolIndex = nextToolIndex
         nextToolIndex += 1
         toolIndexes.set(event.index, toolIndex)
-        yield createChatToolStartChunk(responseId, publicModel, toolIndex, String(block.id), String(block.name))
+        yield createChatToolStartChunk(
+          responseId,
+          publicModel,
+          toolIndex,
+          String(block.id),
+          fromAnthropicToolName(String(block.name), toolNameAliases),
+        )
       }
       continue
     }

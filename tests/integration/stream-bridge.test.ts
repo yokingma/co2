@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { createServer } from '../../src/server/create-server.js'
 import { createClaudeClient, createOpenAIClient, createRuntimeConfig, createSilentLogger, fromArray } from '../helpers.js'
 
@@ -60,7 +60,13 @@ describe('stream bridge', () => {
 
     expect(response.statusCode).toBe(200)
     expect(response.body).toContain('response.created')
+    expect(response.body).toContain('"output":[]')
+    expect(response.body).toContain('"content":[{"type":"output_text","text":"","annotations":[]}]')
     expect(response.body).toContain('response.output_text.delta')
+    expect(response.body).toContain('"logprobs":[]')
+    expect(response.body).toContain('"sequence_number":')
+    expect(response.body).toContain('"status":"completed"')
+    expect(response.body).toContain('"output":[{"type":"message"')
     expect(response.body).toContain('response.completed')
     await server.close()
   })
@@ -94,6 +100,174 @@ describe('stream bridge', () => {
     expect(response.statusCode).toBe(200)
     expect(response.body).toContain('"name":"get_weather"')
     expect(response.body).toContain('"arguments":"{\\"city\\":\\"Shanghai\\"}"')
+    expect(response.body).toContain('response.function_call_arguments.done')
+    expect(response.body).toContain('"name":"get_weather"')
+    expect(response.body).toContain('"sequence_number":')
+    await server.close()
+  })
+
+  it('restores original dotted tool names in OpenAI responses stream items', async () => {
+    const originalToolName = 'functions.exec_command'
+    let upstreamToolName = ''
+
+    const server = createServer(createRuntimeConfig('openai-to-claude'), {
+      logger: createSilentLogger(),
+      claudeClient: createClaudeClient({
+        streamMessage: async (request) => {
+          upstreamToolName = request.tools?.[0]?.name ?? ''
+          return fromArray([
+            { type: 'message_start' },
+            { type: 'content_block_start', index: 0, content_block: { type: 'tool_use', id: 'call_1', name: upstreamToolName, input: {} } },
+            { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: '{"cmd":"pwd"}' } },
+            { type: 'content_block_stop', index: 0 },
+            { type: 'message_stop' },
+          ])
+        },
+      }),
+      openAIClient: createOpenAIClient({}),
+    })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/responses',
+      payload: {
+        model: 'gpt-4.1',
+        input: [{ role: 'user', content: [{ type: 'input_text', text: 'call tool' }] }],
+        tools: [{ type: 'function', name: originalToolName, parameters: { type: 'object' } }],
+        stream: true,
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(upstreamToolName).toMatch(/^[a-zA-Z0-9_-]{1,128}$/)
+    expect(upstreamToolName).not.toBe(originalToolName)
+    expect(response.body).toContain(`"name":"${originalToolName}"`)
+    expect(response.body).not.toContain(`"name":"${upstreamToolName}"`)
+    await server.close()
+  })
+
+  it('restores original dotted tool names in chat completion stream chunks', async () => {
+    const originalToolName = 'multi_tool_use.parallel'
+    let upstreamToolName = ''
+
+    const server = createServer(createRuntimeConfig('openai-to-claude'), {
+      logger: createSilentLogger(),
+      claudeClient: createClaudeClient({
+        streamMessage: async (request) => {
+          upstreamToolName = request.tools?.[0]?.name ?? ''
+          return fromArray([
+            { type: 'message_start' },
+            { type: 'content_block_start', index: 0, content_block: { type: 'tool_use', id: 'call_1', name: upstreamToolName, input: {} } },
+            { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: '{"tool_uses":[]}' } },
+            { type: 'message_delta', delta: { stop_reason: 'tool_use' } },
+            { type: 'message_stop' },
+          ])
+        },
+      }),
+      openAIClient: createOpenAIClient({}),
+    })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      payload: {
+        model: 'gpt-4.1',
+        messages: [{ role: 'user', content: 'call tool' }],
+        tools: [{
+          type: 'function',
+          function: {
+            name: originalToolName,
+            parameters: { type: 'object' },
+          },
+        }],
+        stream: true,
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(upstreamToolName).toMatch(/^[a-zA-Z0-9_-]{1,128}$/)
+    expect(upstreamToolName).not.toBe(originalToolName)
+    expect(response.body).toContain(`"name":"${originalToolName}"`)
+    expect(response.body).not.toContain(`"name":"${upstreamToolName}"`)
+    await server.close()
+  })
+
+  it('keeps distinct output indexes when Claude streams tool use before text', async () => {
+    const server = createServer(createRuntimeConfig('openai-to-claude'), {
+      logger: createSilentLogger(),
+      claudeClient: createClaudeClient({
+        streamMessage: async () => fromArray([
+          { type: 'message_start' },
+          { type: 'content_block_start', index: 0, content_block: { type: 'tool_use', id: 'call_1', name: 'get_weather', input: {} } },
+          { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: '{"city":"Shanghai"}' } },
+          { type: 'content_block_stop', index: 0 },
+          { type: 'content_block_start', index: 1, content_block: { type: 'text', text: '' } },
+          { type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text: 'Done.' } },
+          { type: 'content_block_stop', index: 1 },
+          { type: 'message_stop' },
+        ]),
+      }),
+      openAIClient: createOpenAIClient({}),
+    })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/responses',
+      payload: {
+        model: 'gpt-4.1',
+        input: [{ role: 'user', content: [{ type: 'input_text', text: 'hello' }] }],
+        stream: true,
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.body).toContain('"item_id":"call_1"')
+    expect(response.body).toContain('"output_index":0,"item":{"type":"function_call"')
+    expect(response.body).toContain('"output_index":1,"item":{"type":"message"')
+    expect(response.body).toContain('"item_id":"req-1_message_1"')
+    expect(response.body).toContain('"output_index":1,"content_index":0,"delta":"Done."')
+    expect(response.body).toContain('"output":[{"type":"function_call"')
+    expect(response.body).toContain('{"type":"message","id":"req-1_message_1"')
+    await server.close()
+  })
+
+  it('keeps one created_at across response.created and response.completed events', async () => {
+    const originalDateNow = Date.now
+    const timestamps = [1_700_000_000_000, 1_700_000_001_000]
+    let index = 0
+    vi.spyOn(Date, 'now').mockImplementation(() => timestamps[Math.min(index++, timestamps.length - 1)] ?? originalDateNow())
+
+    const server = createServer(createRuntimeConfig('openai-to-claude'), {
+      logger: createSilentLogger(),
+      claudeClient: createClaudeClient({
+        streamMessage: async () => fromArray([
+          { type: 'message_start' },
+          { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+          { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'hello' } },
+          { type: 'content_block_stop', index: 0 },
+          { type: 'message_stop' },
+        ]),
+      }),
+      openAIClient: createOpenAIClient({}),
+    })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/responses',
+      payload: {
+        model: 'gpt-4.1',
+        input: [{ role: 'user', content: [{ type: 'input_text', text: 'hello' }] }],
+        stream: true,
+      },
+    })
+
+    vi.restoreAllMocks()
+
+    expect(response.statusCode).toBe(200)
+    const createdMatch = response.body.match(/response\.created[\s\S]*?"created_at":(\d+)/)
+    const completedMatch = response.body.match(/response\.completed[\s\S]*?"created_at":(\d+)/)
+    expect(createdMatch?.[1]).toBeDefined()
+    expect(completedMatch?.[1]).toBe(createdMatch?.[1])
     await server.close()
   })
 

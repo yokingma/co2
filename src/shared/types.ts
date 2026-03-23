@@ -8,6 +8,11 @@ export type NormalizedToolDefinition = {
   inputSchema: unknown
 }
 
+export type ToolNameAliases = {
+  originalToAnthropic: Record<string, string>
+  anthropicToOriginal: Record<string, string>
+}
+
 export type NormalizedContentPart =
   | {
       type: 'text'
@@ -34,6 +39,11 @@ export type OpenAIReasoningConfig = {
   summary?: ReasoningSummary
 }
 
+export type OpenAIUpstreamReasoningConfig = {
+  effort?: ReasoningEffort | (string & {})
+  summary?: ReasoningSummary
+}
+
 export type ClaudeThinkingConfig =
   | {
       type: 'enabled'
@@ -45,6 +55,12 @@ export type ClaudeThinkingConfig =
   | {
       type: 'adaptive'
     }
+
+export type ClaudeOutputEffort = 'low' | 'medium' | 'high' | 'max'
+
+export type ClaudeOutputConfig = {
+  effort: ClaudeOutputEffort
+}
 
 export type NormalizedMessage = {
   role: MessageRole
@@ -61,9 +77,11 @@ export type NormalizedRequest = {
   toolChoice?: ToolChoice
   maxOutputTokens?: number
   temperature?: number
+  topP?: number
   stopSequences?: string[]
   instructions?: string
   reasoning?: OpenAIReasoningConfig
+  toolNameAliases?: ToolNameAliases
   requestId: string
 }
 
@@ -108,6 +126,8 @@ export type RuntimeConfig = {
   routing: {
     defaultOpenAIModel?: string
     defaultClaudeModel?: string
+    claudeOutputEffort?: ClaudeOutputEffort
+    openAIReasoningEffort?: string
   }
   modelMap: Record<string, string>
 }
@@ -171,8 +191,12 @@ export type OpenAIChatRequest = {
   tool_choice?: 'auto' | 'none' | 'required' | OpenAIChatToolChoiceObject
   stream?: boolean
   temperature?: number
+  top_p?: number
   stop?: string | string[]
+  reasoning_effort?: ReasoningEffort
   max_completion_tokens?: number
+  max_tokens?: number
+  parallel_tool_calls?: boolean
 }
 
 export type OpenAIResponsesTool = {
@@ -197,9 +221,16 @@ export type OpenAIResponsesInputText = {
   text: string
 }
 
+export type OpenAIResponsesOutputTextInput = {
+  type: 'output_text'
+  text: string
+}
+
 export type OpenAIResponsesMessageInput = {
-  role: 'system' | 'user' | 'assistant' | 'tool'
-  content: string | OpenAIResponsesInputText[]
+  type?: 'message'
+  role: 'system' | 'developer' | 'user' | 'assistant' | 'tool'
+  content: string | Array<OpenAIResponsesInputText | OpenAIResponsesOutputTextInput>
+  phase?: 'commentary' | 'final_answer' | null
 }
 
 export type OpenAIResponsesFunctionCallInput = {
@@ -226,10 +257,12 @@ export type OpenAIResponsesRequest = {
   instructions?: string
   tools?: OpenAIResponsesTool[]
   tool_choice?: OpenAIResponsesToolChoice
-  reasoning?: OpenAIReasoningConfig
+  reasoning?: OpenAIUpstreamReasoningConfig
+  parallel_tool_calls?: boolean
   stream?: boolean
   max_output_tokens?: number
   temperature?: number
+  top_p?: number
 }
 
 export type OpenAIResponsesOutputText = {
@@ -329,8 +362,10 @@ export type ClaudeMessagesRequest = {
   tools?: ClaudeToolDefinition[]
   tool_choice?: ClaudeToolChoice
   thinking?: ClaudeThinkingConfig
+  output_config?: ClaudeOutputConfig
   stream?: boolean
   temperature?: number
+  top_p?: number
   stop_sequences?: string[]
 }
 

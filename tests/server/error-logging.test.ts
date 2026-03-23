@@ -4,7 +4,7 @@ import { createClaudeClient, createOpenAIClient, createRuntimeConfig } from '../
 import type { Logger } from '../../src/shared/types.js'
 
 describe('error logging', () => {
-  it('logs detailed validation context for messages failures', async () => {
+  it('logs detailed validation context for unsupported messages parameters', async () => {
     const entries: Array<{ message: string; data?: Record<string, unknown> }> = []
     const logger: Logger = {
       debug() {},
@@ -34,14 +34,14 @@ describe('error logging', () => {
         model: 'claude-opus-4.6',
         max_tokens: 128,
         messages: [{ role: 'user', content: 'hello' }],
-        unsupported_field: true,
+        top_k: 3,
       },
     })
 
     expect(response.statusCode).toBe(400)
     const logEntry = entries.find((entry) => entry.message === 'Messages route failed')
     expect(logEntry).toBeDefined()
-    expect(logEntry?.data?.bodyKeys).toEqual(['max_tokens', 'messages', 'model', 'unsupported_field'])
+    expect(logEntry?.data?.bodyKeys).toEqual(['max_tokens', 'messages', 'model', 'top_k'])
     expect(logEntry?.data?.headerSummary).toEqual({
       contentType: 'application/json',
       anthropicVersion: '2023-06-01',
@@ -49,13 +49,9 @@ describe('error logging', () => {
       hasAuthorization: false,
       hasXApiKey: true,
     })
-    expect(logEntry?.data?.errorMessage).toContain('Unrecognized key')
-    expect(logEntry?.data?.zodIssues).toEqual([
-      {
-        path: '<root>',
-        message: 'Unrecognized key: "unsupported_field"',
-      },
-    ])
+    expect(logEntry?.data?.errorMessage).toContain('top_k')
+    expect(logEntry?.data?.errorParam).toBe('top_k')
+    expect(logEntry?.data?.zodIssues).toBeUndefined()
 
     await server.close()
   })

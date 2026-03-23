@@ -38,6 +38,46 @@ describe('o2c chat completions', () => {
     await server.close()
   })
 
+  it('accepts max_tokens alias and maps reasoning_effort plus top_p to Claude', async () => {
+    const createMessage = vi.fn(async (request) => ({
+      id: 'msg_chat_reasoning_effort',
+      type: 'message',
+      role: 'assistant',
+      model: request.model,
+      content: [{ type: 'text', text: 'co2 works' }],
+      stop_reason: 'end_turn',
+      stop_sequence: null,
+      usage: { input_tokens: 10, output_tokens: 5 },
+    }))
+
+    const server = createServer(createRuntimeConfig('openai-to-claude'), {
+      logger: createSilentLogger(),
+      claudeClient: createClaudeClient({ createMessage }),
+      openAIClient: createOpenAIClient({}),
+    })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      payload: {
+        model: 'gpt-4.1',
+        messages: [{ role: 'user', content: 'hello' }],
+        max_tokens: 128,
+        reasoning_effort: 'high',
+        top_p: 0.3,
+        metadata: { trace_id: 'req_123' },
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(createMessage).toHaveBeenCalled()
+    expect((createMessage.mock.calls[0][0] as Record<string, unknown>).max_tokens).toBe(128)
+    expect(createMessage.mock.calls[0][0].thinking).toEqual({ type: 'adaptive' })
+    expect((createMessage.mock.calls[0][0] as Record<string, unknown>).output_config).toEqual({ effort: 'high' })
+    expect((createMessage.mock.calls[0][0] as Record<string, unknown>).top_p).toBe(0.3)
+    await server.close()
+  })
+
   it('maps Claude tool_use back to chat tool_calls', async () => {
     const server = createServer(createRuntimeConfig('openai-to-claude'), {
       logger: createSilentLogger(),
@@ -81,6 +121,88 @@ describe('o2c chat completions', () => {
     expect(response.statusCode).toBe(200)
     expect(response.json().choices[0].finish_reason).toBe('tool_calls')
     expect(response.json().choices[0].message.tool_calls[0].function.name).toBe('get_weather')
+    await server.close()
+  })
+
+  it('aliases dotted tool names for Anthropic chat requests and restores original names in chat output', async () => {
+    const originalToolName = 'multi_tool_use.parallel'
+    const createMessage = vi.fn(async (request) => ({
+      id: 'msg_chat_tool_alias',
+      type: 'message',
+      role: 'assistant',
+      model: request.model,
+      content: [{
+        type: 'tool_use',
+        id: 'toolu_1',
+        name: request.tools?.[0]?.name ?? 'unexpected_tool_name',
+        input: { tool_uses: [] },
+      }],
+      stop_reason: 'tool_use',
+      stop_sequence: null,
+      usage: { input_tokens: 10, output_tokens: 5 },
+    }))
+
+    const server = createServer(createRuntimeConfig('openai-to-claude'), {
+      logger: createSilentLogger(),
+      claudeClient: createClaudeClient({ createMessage }),
+      openAIClient: createOpenAIClient({}),
+    })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      payload: {
+        model: 'gpt-4.1',
+        messages: [
+          { role: 'user', content: 'call tool' },
+          {
+            role: 'assistant',
+            tool_calls: [{
+              id: 'call_1',
+              type: 'function',
+              function: {
+                name: originalToolName,
+                arguments: '{"tool_uses":[]}',
+              },
+            }],
+          },
+          {
+            role: 'tool',
+            tool_call_id: 'call_1',
+            content: 'ok',
+          },
+        ],
+        tools: [{
+          type: 'function',
+          function: {
+            name: originalToolName,
+            parameters: { type: 'object', properties: { tool_uses: { type: 'array' } } },
+          },
+        }],
+        tool_choice: {
+          type: 'function',
+          function: {
+            name: originalToolName,
+          },
+        },
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(createMessage).toHaveBeenCalled()
+
+    const upstreamRequest = createMessage.mock.calls[0][0]
+    const aliasedToolName = upstreamRequest.tools?.[0]?.name
+
+    expect(aliasedToolName).toMatch(/^[a-zA-Z0-9_-]{1,128}$/)
+    expect(aliasedToolName).not.toBe(originalToolName)
+    expect(upstreamRequest.tool_choice).toEqual({
+      type: 'tool',
+      name: aliasedToolName,
+      disable_parallel_tool_use: true,
+    })
+    expect(upstreamRequest.messages[1].content[0].name).toBe(aliasedToolName)
+    expect(response.json().choices[0].message.tool_calls[0].function.name).toBe(originalToolName)
     await server.close()
   })
 
@@ -179,6 +301,82 @@ describe('o2c chat completions', () => {
       type: 'auto',
       disable_parallel_tool_use: true,
     })
+    await server.close()
+  })
+
+  it('rejects parallel tool calls because V1 only supports sequential tool use', async () => {
+    const createMessage = vi.fn(async () => ({
+      id: 'msg_chat_parallel_tool_calls',
+      type: 'message',
+      role: 'assistant',
+      model: 'claude-sonnet-4-20250514',
+      content: [{ type: 'text', text: 'unexpected' }],
+      stop_reason: 'end_turn',
+      stop_sequence: null,
+      usage: { input_tokens: 1, output_tokens: 1 },
+    }))
+
+    const server = createServer(createRuntimeConfig('openai-to-claude'), {
+      logger: createSilentLogger(),
+      claudeClient: createClaudeClient({ createMessage }),
+      openAIClient: createOpenAIClient({}),
+    })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      payload: {
+        model: 'gpt-4.1',
+        messages: [{ role: 'user', content: 'call tool' }],
+        tools: [{
+          type: 'function',
+          function: {
+            name: 'get_weather',
+            parameters: { type: 'object' },
+          },
+        }],
+        parallel_tool_calls: true,
+      },
+    })
+
+    expect(response.statusCode).toBe(400)
+    expect(response.json().error.code).toBe('unsupported_parameter')
+    expect(response.json().error.param).toBe('parallel_tool_calls')
+    expect(createMessage).not.toHaveBeenCalled()
+    await server.close()
+  })
+
+  it('rejects unknown top-level fields instead of silently ignoring typos', async () => {
+    const createMessage = vi.fn(async () => ({
+      id: 'msg_chat_unknown_field',
+      type: 'message',
+      role: 'assistant',
+      model: 'claude-sonnet-4-20250514',
+      content: [{ type: 'text', text: 'unexpected' }],
+      stop_reason: 'end_turn',
+      stop_sequence: null,
+      usage: { input_tokens: 1, output_tokens: 1 },
+    }))
+
+    const server = createServer(createRuntimeConfig('openai-to-claude'), {
+      logger: createSilentLogger(),
+      claudeClient: createClaudeClient({ createMessage }),
+      openAIClient: createOpenAIClient({}),
+    })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      payload: {
+        model: 'gpt-4.1',
+        messages: [{ role: 'user', content: 'hello' }],
+        max_tokenss: 128,
+      },
+    })
+
+    expect(response.statusCode).toBe(400)
+    expect(response.json().error.message).toContain('Unrecognized key')
+    expect(createMessage).not.toHaveBeenCalled()
     await server.close()
   })
 })
