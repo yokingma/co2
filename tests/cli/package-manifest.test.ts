@@ -59,10 +59,10 @@ describe('package manifest', () => {
   it('declares runtime metadata needed by npm consumers', async () => {
     const packageJson = await loadPackageJson()
 
-    expect(packageJson.engines?.node).toBe('>=22')
+    expect(packageJson.engines?.node).toBe('>=20.19.0')
     expect(packageJson.repository).toEqual({
       type: 'git',
-      url: 'https://cnb.cool/qijia/co2',
+      url: 'https://github.com/yokingma/co2',
     })
   })
 })

@@ -2,17 +2,19 @@
   "server": {
     "host": "127.0.0.1",
     "port": 8000,
-    "mode": "openai-to-claude",
+    "mode": "claude-to-openai",
     "logLevel": "info"
   },
   "providers": {
     "openai": {
+      "apiKey": "OPENAI_API_KEY_PLACEHOLDER",
       "baseUrl": "https://api.openai.com/v1",
       "defaultHeaders": {
         "user-agent": "co2-proxy/0.1.0"
       }
     },
     "anthropic": {
+      "apiKey": "ANTHROPIC_API_KEY_PLACEHOLDER",
       "baseUrl": "https://api.anthropic.com",
       "defaultHeaders": {
         "user-agent": "co2-proxy/0.1.0"
@@ -24,7 +26,6 @@
     "defaultClaudeModel": "claude-opus-4.6",
     "openAIReasoningEffort": "high",
     "claudeOutputEffort": "high"
-
   },
   "modelMap": {
     "claude-opus-4.6": "gpt-5.4",

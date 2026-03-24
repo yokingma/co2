@@ -6,13 +6,13 @@
   "type": "module",
   "license": "MIT",
   "packageManager": "pnpm@10.31.0",
-  "homepage": "https://cnb.cool/qijia/co2",
+  "homepage": "https://github.com/yokingma/co2",
   "repository": {
     "type": "git",
-    "url": "https://cnb.cool/qijia/co2"
+    "url": "https://github.com/yokingma/co2"
   },
   "bugs": {
-    "url": "https://cnb.cool/qijia/co2"
+    "url": "https://github.com/yokingma/co2/issues"
   },
   "keywords": [
     "cli",
@@ -22,7 +22,7 @@
     "proxy"
   ],
   "engines": {
-    "node": ">=22"
+    "node": ">=20.19.0"
   },
   "publishConfig": {
     "access": "public"
