@@ -30,7 +30,7 @@
   "files": [
     "dist",
     "README.md",
-    "CHANGELOG.md",
+    "README.zh-CN.md",
     "LICENSE"
   ],
   "bin": {
