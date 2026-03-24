@@ -1,22 +1,26 @@
-# @fastagent/co2
+<h1 align="center">@fastagent/co2</h1>
 
-`@fastagent/co2` 是一个本地 CLI 网关，用来在 OpenAI-compatible 和 Claude-compatible 协议之间做转换，让现有客户端在不改调用协议的前提下接到另一侧上游。它以本地 HTTP 服务方式运行，支持两种模式：`o2c`（OpenAI request -> Claude upstream）和 `c2o`（Claude request -> OpenAI upstream）。
+<div align="center">
+  <strong>English</strong> | <a href="./README.zh-CN.md">简体中文</a>
+</div>
 
-## 安装
+`@fastagent/co2` is a local CLI gateway that translates between OpenAI-compatible and Claude-compatible protocols, so existing clients can talk to the other upstream without changing their request protocol. It runs as a local HTTP service and supports two modes: `o2c` (`OpenAI request -> Claude upstream`) and `c2o` (`Claude request -> OpenAI upstream`).
+
+## Install
 
 ```bash
 npm install -g @fastagent/co2
 ```
 
-或直接临时执行：
+Or run it directly without installing:
 
 ```bash
 npx @fastagent/co2 start --config ./co2.config.json
 ```
 
-## 快速使用
+## Quick Start
 
-1. 新建 `co2.config.json`
+1. Create `co2.config.json`
 
 ```json
 {
@@ -56,34 +60,41 @@ npx @fastagent/co2 start --config ./co2.config.json
 }
 ```
 
-2. 启动服务
+Notes:
+
+- The example shows both `openai` and `anthropic` providers so the full config shape is visible in one place.
+- In `openai-to-claude` / `o2c`, only `providers.anthropic` is used. `providers.openai` can be omitted without affecting startup or request handling.
+- In `claude-to-openai` / `c2o`, only `providers.openai` is used. `providers.anthropic` can be omitted without affecting startup or request handling.
+- `routing.defaultClaudeModel` and `routing.claudeOutputEffort` only affect `o2c`. `routing.defaultOpenAIModel` and `routing.openAIReasoningEffort` only affect `c2o`.
+
+2. Start the server
 
 ```bash
 co2 start --config ./co2.config.json
 ```
 
-3. 按模式调用路由
+3. Call the route that matches the current mode
 
-- `openai-to-claude`：`POST /v1/chat/completions`、`POST /v1/responses`
-- `claude-to-openai`：`POST /v1/messages`
+- `openai-to-claude`: `POST /v1/chat/completions`, `POST /v1/responses`
+- `claude-to-openai`: `POST /v1/messages`
 
-## 模式说明
+## Modes
 
-- `o2c` = OpenAI request -> Claude upstream
-- `c2o` = Claude request -> OpenAI upstream
-- 模式名表示的是入口协议 -> 上游协议；返回协议默认跟入口保持一致
+- `o2c` = `OpenAI request -> Claude upstream`
+- `c2o` = `Claude request -> OpenAI upstream`
+- The mode name is always `incoming protocol -> upstream protocol`; response protocol stays aligned with the incoming side by default.
 
-| 你的客户端说什么协议 | 你想接到哪个上游 | 应该使用的模式 |
+| What protocol your client speaks | What upstream you want | Mode to use |
 | --- | --- | --- |
 | OpenAI `chat/completions` / `responses` | Claude | `o2c` |
 | Claude `messages` | OpenAI | `c2o` |
 
-常见情况：
+Common cases:
 
-- OpenAI SDK、OpenAI-compatible 应用：通常用 `o2c`
-- Claude-compatible 应用、Claude `messages` 客户端：通常用 `c2o`
+- OpenAI SDK and other OpenAI-compatible clients usually use `o2c`.
+- Claude-compatible clients and Claude `messages` clients usually use `c2o`.
 
-### `o2c` 示例
+### `o2c` Example
 
 ```bash
 curl http://127.0.0.1:8000/v1/responses \
@@ -94,7 +105,7 @@ curl http://127.0.0.1:8000/v1/responses \
       {
         "role": "user",
         "content": [
-          { "type": "input_text", "text": "你好" }
+          { "type": "input_text", "text": "Hello" }
         ]
       }
     ],
@@ -102,9 +113,9 @@ curl http://127.0.0.1:8000/v1/responses \
   }'
 ```
 
-### `c2o` 示例
+### `c2o` Example
 
-把配置里的 `server.mode` 改成 `claude-to-openai` 后：
+After changing `server.mode` to `claude-to-openai`:
 
 ```bash
 curl http://127.0.0.1:8000/v1/messages \
@@ -113,13 +124,13 @@ curl http://127.0.0.1:8000/v1/messages \
     "model": "claude-opus-4.6",
     "max_tokens": 128,
     "messages": [
-      { "role": "user", "content": "你好" }
+      { "role": "user", "content": "Hello" }
     ]
   }'
 ```
 
-说明：
+Notes:
 
-- 生产环境建议把密钥放进环境变量；环境变量优先级高于配置文件
-- Anthropic 兼容读取 `ANTHROPIC_AUTH_TOKEN`，但它和 `ANTHROPIC_API_KEY` 同时存在时必须一致
-- 运行时要求 Node.js `>= 22`
+- For production, prefer environment variables for API keys; environment variables take precedence over the config file.
+- `ANTHROPIC_AUTH_TOKEN` is accepted as a compatibility alias, but if it exists together with `ANTHROPIC_API_KEY`, they must be identical.
+- Node.js `>= 20.19.0` is required.
