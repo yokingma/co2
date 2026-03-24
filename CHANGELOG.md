@@ -2,6 +2,9 @@
 
 ## 2026-03-23
 
+- 修复流式 token usage 映射：`o2c /v1/responses` 现在会在最终 `response.completed` 快照里携带 `usage`；`c2o /v1/messages` 现在会在最终 `message_delta` 里回写准确的 `input_tokens/output_tokens`；`o2c /v1/chat/completions` 新增 `stream_options.include_usage` 兼容，仅在显式开启时追加官方风格的最终 usage chunk。
+- 收紧 `o2c /v1/chat/completions` 的 `stream_options` 边界：嵌套对象现在只接受 `include_usage`，未知字段会按严格校验直接报错；同时补充回归测试，锁定 `include_usage` 缺失或为 `false` 时不得额外发出 usage chunk。
+- 修复 `c2o /v1/messages` 对 Claude Code 请求体的兼容性：入站 schema 现在接受 `output_config.effort`，并将其近似映射到 OpenAI `responses.reasoning.effort`；当请求同时携带 `thinking` 与 `output_config` 时，显式 `output_config.effort` 会覆盖由 `thinking` 推导出的默认 effort。
 - 收紧入站 schema 的兼容边界：`chat/completions`、`responses`、`messages` 只对白名单控制面字段做显式兼容吸收，未知顶层字段重新恢复为严格校验，避免把 `max_tokenss`、`thinkingg` 这类拼写错误静默吞掉。
 - 修复 `o2c /v1/responses` 的 SSE 编码稳定性：文本 output item 现在复用 Claude `content_block` 的真实 index，不再在“先 tool、后 text”的混合流里错误复用 `output_index: 0` 并覆盖已有 tool item；同一条流内 `response.created` 与 `response.completed` 现在会复用稳定的 `created_at`。
 - 调整根 `package.json` 的 `dev/start` 脚本：保留 CLI `start` 子命令，但不再默认强绑仓库内的 `co2.config.json`；同时把仓库样例配置里的第三方代理地址恢复为官方 OpenAI / Anthropic API 地址，避免把个人上游配置误当成项目默认值。

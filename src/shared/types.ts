@@ -81,6 +81,7 @@ export type NormalizedRequest = {
   stopSequences?: string[]
   instructions?: string
   reasoning?: OpenAIReasoningConfig
+  streamIncludeUsage?: boolean
   toolNameAliases?: ToolNameAliases
   requestId: string
 }
@@ -190,6 +191,9 @@ export type OpenAIChatRequest = {
   tools?: OpenAIFunctionTool[]
   tool_choice?: 'auto' | 'none' | 'required' | OpenAIChatToolChoiceObject
   stream?: boolean
+  stream_options?: {
+    include_usage?: boolean
+  }
   temperature?: number
   top_p?: number
   stop?: string | string[]

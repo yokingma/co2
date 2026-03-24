@@ -136,6 +136,7 @@ export function normalizeOpenAIChatRequest(body: unknown, mode: RuntimeConfig['s
     topP: parsed.top_p,
     stopSequences: normalizeStopSequences(parsed.stop),
     reasoning: parsed.reasoning_effort ? { effort: parsed.reasoning_effort } : undefined,
+    streamIncludeUsage: parsed.stream_options?.include_usage,
     toolNameAliases,
     requestId,
   }

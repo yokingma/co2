@@ -214,7 +214,17 @@ export function registerRoutes(
         logUpstreamRequestBody(logger, 'Claude upstream request body', requestId, 'anthropic', '/v1/messages', upstreamRequest as Record<string, unknown>)
         if (normalized.transport === 'sse') {
           const upstreamStream = await claudeClient.streamMessage(upstreamRequest)
-          await streamReply(reply, requestId, encodeClaudeStreamToOpenAIChat(upstreamStream, requestId, normalized.model, normalized.toolNameAliases))
+          await streamReply(
+            reply,
+            requestId,
+            encodeClaudeStreamToOpenAIChat(
+              upstreamStream,
+              requestId,
+              normalized.model,
+              normalized.toolNameAliases,
+              normalized.streamIncludeUsage ?? false,
+            ),
+          )
           return reply
         }
         const upstreamResponse = await claudeClient.createMessage(upstreamRequest)

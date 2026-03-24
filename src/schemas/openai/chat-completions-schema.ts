@@ -74,6 +74,9 @@ export const openAIChatCompletionsSchema = z.strictObject({
     }).passthrough(),
   ]).optional(),
   stream: z.boolean().optional(),
+  stream_options: z.strictObject({
+    include_usage: z.boolean().optional(),
+  }).optional(),
   temperature: z.number().min(0).max(2).optional(),
   top_p: z.number().gt(0).lte(1).optional(),
   stop: z.union([z.string().min(1), z.array(z.string().min(1)).min(1)]).optional(),

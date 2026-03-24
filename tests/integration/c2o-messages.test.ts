@@ -156,6 +156,48 @@ describe('c2o messages', () => {
     await server.close()
   })
 
+  it('accepts Claude output_config effort and maps it to OpenAI reasoning', async () => {
+    const createResponse = vi.fn(async (request) => ({
+      id: 'resp_message_output_config',
+      object: 'response',
+      status: 'completed',
+      model: request.model,
+      output: [{
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: 'reasoned answer' }],
+      }],
+      usage: { input_tokens: 8, output_tokens: 4, total_tokens: 12 },
+    }))
+
+    const server = createServer(createRuntimeConfig('claude-to-openai'), {
+      logger: createSilentLogger(),
+      claudeClient: createClaudeClient({}),
+      openAIClient: createOpenAIClient({ createResponse }),
+    })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/messages',
+      payload: {
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 4096,
+        thinking: {
+          type: 'adaptive',
+        },
+        output_config: {
+          effort: 'high',
+        },
+        messages: [{ role: 'user', content: 'think first' }],
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(createResponse).toHaveBeenCalled()
+    expect(createResponse.mock.calls[0][0].reasoning).toEqual({ effort: 'high' })
+    await server.close()
+  })
+
   it('encodes assistant history messages as output_text for OpenAI responses input', async () => {
     const createResponse = vi.fn(async (request) => ({
       id: 'resp_message_assistant_history',

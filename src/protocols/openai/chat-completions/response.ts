@@ -55,7 +55,13 @@ export function buildOpenAIChatCompletionResponse(response: NormalizedResponse, 
   }
 }
 
-function baseChunk(responseId: string, publicModel: string, delta: Record<string, unknown>, finishReason: string | null): Record<string, unknown> {
+function baseChunk(
+  responseId: string,
+  publicModel: string,
+  delta: Record<string, unknown>,
+  finishReason: string | null,
+  includeUsage: boolean,
+): Record<string, unknown> {
   return {
     id: responseId,
     object: 'chat.completion.chunk',
@@ -68,19 +74,27 @@ function baseChunk(responseId: string, publicModel: string, delta: Record<string
         finish_reason: finishReason,
       },
     ],
+    ...(includeUsage ? { usage: null } : {}),
   }
 }
 
-export function createChatStartChunk(responseId: string, publicModel: string): string {
-  return formatDataOnlySse(baseChunk(responseId, publicModel, { role: 'assistant' }, null))
+export function createChatStartChunk(responseId: string, publicModel: string, includeUsage = false): string {
+  return formatDataOnlySse(baseChunk(responseId, publicModel, { role: 'assistant' }, null, includeUsage))
 }
 
 
-export function createChatTextChunk(responseId: string, publicModel: string, text: string): string {
-  return formatDataOnlySse(baseChunk(responseId, publicModel, { content: text }, null))
+export function createChatTextChunk(responseId: string, publicModel: string, text: string, includeUsage = false): string {
+  return formatDataOnlySse(baseChunk(responseId, publicModel, { content: text }, null, includeUsage))
 }
 
-export function createChatToolStartChunk(responseId: string, publicModel: string, toolIndex: number, toolCallId: string, name: string): string {
+export function createChatToolStartChunk(
+  responseId: string,
+  publicModel: string,
+  toolIndex: number,
+  toolCallId: string,
+  name: string,
+  includeUsage = false,
+): string {
   return formatDataOnlySse(
     baseChunk(
       responseId,
@@ -99,11 +113,18 @@ export function createChatToolStartChunk(responseId: string, publicModel: string
         ],
       },
       null,
+      includeUsage,
     ),
   )
 }
 
-export function createChatToolArgumentsChunk(responseId: string, publicModel: string, toolIndex: number, delta: string): string {
+export function createChatToolArgumentsChunk(
+  responseId: string,
+  publicModel: string,
+  toolIndex: number,
+  delta: string,
+  includeUsage = false,
+): string {
   return formatDataOnlySse(
     baseChunk(
       responseId,
@@ -119,12 +140,28 @@ export function createChatToolArgumentsChunk(responseId: string, publicModel: st
         ],
       },
       null,
+      includeUsage,
     ),
   )
 }
 
-export function createChatFinishChunk(responseId: string, publicModel: string, finishReason: string): string {
-  return formatDataOnlySse(baseChunk(responseId, publicModel, {}, finishReason))
+export function createChatFinishChunk(responseId: string, publicModel: string, finishReason: string, includeUsage = false): string {
+  return formatDataOnlySse(baseChunk(responseId, publicModel, {}, finishReason, includeUsage))
+}
+
+export function createChatUsageChunk(
+  responseId: string,
+  publicModel: string,
+  usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number },
+): string {
+  return formatDataOnlySse({
+    id: responseId,
+    object: 'chat.completion.chunk',
+    created: Math.floor(Date.now() / 1000),
+    model: publicModel,
+    choices: [],
+    usage,
+  })
 }
 
 export function createChatDoneChunk(): string {

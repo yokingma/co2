@@ -10,7 +10,7 @@ import {
   createResponsesToolArgsDoneEvent,
   createResponsesToolItemAddedEvent,
 } from '../../protocols/openai/responses/response.js'
-import { createTextPart, stringifyToolInput } from '../shared.js'
+import { createTextPart, extractUsageFromRecord, stringifyToolInput } from '../shared.js'
 import type { ClaudeMessagesResponse, ClaudeStreamEvent, NormalizedResponse, ToolNameAliases } from '../../shared/types.js'
 import { fromAnthropicToolName } from './tool-name-aliasing.js'
 
@@ -75,6 +75,7 @@ export async function* encodeClaudeStreamToOpenAIResponses(
   const textItems = new Map<number, { itemId: string; text: string }>()
   const outputItems = new Map<number, Record<string, unknown>>()
   let createdAt: number | undefined
+  let latestUsage: NormalizedResponse['usage'] | undefined
 
   const nextSequenceNumber = (): number => {
     const value = sequenceNumber
@@ -95,7 +96,19 @@ export async function* encodeClaudeStreamToOpenAIResponses(
   for await (const event of stream) {
     if (event.type === 'message_start' && !started) {
       started = true
+      const message = 'message' in event && typeof event.message === 'object' && event.message !== null
+        ? event.message as Record<string, unknown>
+        : undefined
+      latestUsage = extractUsageFromRecord(message?.usage, latestUsage)
       yield createResponsesCreatedEvent(responseId, publicModel, nextSequenceNumber(), resolveCreatedAt())
+      continue
+    }
+
+    if (event.type === 'message_delta') {
+      const usage = 'usage' in event && typeof event.usage === 'object' && event.usage !== null
+        ? event.usage as Record<string, unknown>
+        : undefined
+      latestUsage = extractUsageFromRecord(usage, latestUsage)
       continue
     }
 
@@ -232,5 +245,6 @@ export async function* encodeClaudeStreamToOpenAIResponses(
     finalizedOutput,
     nextSequenceNumber(),
     resolveCreatedAt(),
+    latestUsage,
   )
 }

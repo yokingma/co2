@@ -1,5 +1,5 @@
 import { formatSseEvent } from '../../../shared/sse.js'
-import type { NormalizedContentPart, NormalizedResponse } from '../../../shared/types.js'
+import type { NormalizedContentPart, NormalizedResponse, Usage } from '../../../shared/types.js'
 
 function buildStreamingResponseResource(
   responseId: string,
@@ -7,6 +7,7 @@ function buildStreamingResponseResource(
   status: 'in_progress' | 'completed',
   output: Record<string, unknown>[],
   createdAt: number,
+  usage?: Usage,
 ): Record<string, unknown> {
   return {
     id: responseId,
@@ -24,6 +25,15 @@ function buildStreamingResponseResource(
       .filter((part) => part.type === 'output_text' && typeof part.text === 'string')
       .map((part) => part.text)
       .join(''),
+    ...(usage
+      ? {
+          usage: {
+            input_tokens: usage.inputTokens,
+            output_tokens: usage.outputTokens,
+            total_tokens: usage.totalTokens,
+          },
+        }
+      : {}),
   }
 }
 
@@ -205,10 +215,11 @@ export function createResponsesCompletedEvent(
   output: Record<string, unknown>[],
   sequenceNumber: number,
   createdAt: number,
+  usage?: Usage,
 ): string {
   return formatSseEvent('response.completed', {
     type: 'response.completed',
     sequence_number: sequenceNumber,
-    response: buildStreamingResponseResource(responseId, publicModel, 'completed', output, createdAt),
+    response: buildStreamingResponseResource(responseId, publicModel, 'completed', output, createdAt, usage),
   })
 }

@@ -9,7 +9,7 @@ import {
   createClaudeToolBlockStartEvent,
   createClaudeToolInputDeltaEvent,
 } from '../../protocols/claude/messages/response.js'
-import { createTextPart } from '../shared.js'
+import { createTextPart, extractUsageFromRecord } from '../shared.js'
 import type { NormalizedResponse, OpenAIResponsesResponse, OpenAIResponsesStreamEvent } from '../../shared/types.js'
 
 function outputItemsToParts(output: OpenAIResponsesResponse['output']): NormalizedResponse['message']['parts'] {
@@ -61,6 +61,7 @@ export async function* encodeOpenAIResponsesStreamToClaude(stream: AsyncIterable
   const toolIndexes = new Map<string, number>()
   let nextIndex = 0
   let sawToolCall = false
+  let finalUsage: { input_tokens?: number; output_tokens?: number } | undefined
 
   for await (const event of stream) {
     if (event.type === 'response.created' && !started) {
@@ -110,11 +111,25 @@ export async function* encodeOpenAIResponsesStreamToClaude(stream: AsyncIterable
       yield createClaudeContentBlockStopEvent(toolIndex)
       continue
     }
+
+    if (event.type === 'response.completed') {
+      const response = 'response' in event && typeof event.response === 'object' && event.response !== null
+        ? event.response as Record<string, unknown>
+        : undefined
+      const usage = extractUsageFromRecord(response?.usage)
+      if (usage) {
+        finalUsage = {
+          input_tokens: usage.inputTokens,
+          output_tokens: usage.outputTokens,
+        }
+      }
+      continue
+    }
   }
 
   if (!started) {
     yield createClaudeMessageStartEvent(responseId, publicModel)
   }
-  yield createClaudeMessageDeltaEvent(sawToolCall ? 'tool_use' : 'end_turn')
+  yield createClaudeMessageDeltaEvent(sawToolCall ? 'tool_use' : 'end_turn', finalUsage)
   yield createClaudeMessageStopEvent()
 }

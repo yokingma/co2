@@ -1,5 +1,5 @@
 import { claudeMessagesSchema } from '../../schemas/claude/messages-schema.js'
-import { buildOpenAIResponsesRequest, createTextPart, mapClaudeThinkingToOpenAIReasoning, stringifyToolInput } from '../shared.js'
+import { buildOpenAIResponsesRequest, createTextPart, mapClaudeThinkingAndOutputConfigToOpenAIReasoning, stringifyToolInput } from '../shared.js'
 import type { NormalizedContentPart, NormalizedMessage, NormalizedRequest, RuntimeConfig } from '../../shared/types.js'
 import type { ToolChoice } from '../../shared/contracts.js'
 import { createUnsupportedParameterError, createUnsupportedToolError } from '../../shared/errors.js'
@@ -110,7 +110,14 @@ export function normalizeClaudeMessagesRequest(body: unknown, mode: RuntimeConfi
     temperature: parsed.temperature,
     topP: parsed.top_p,
     stopSequences: parsed.stop_sequences,
-    reasoning: mapClaudeThinkingToOpenAIReasoning(parsed.thinking ? parsed.thinking.type === 'enabled' ? { type: 'enabled', budgetTokens: parsed.thinking.budget_tokens } : { type: parsed.thinking.type } : undefined),
+    reasoning: mapClaudeThinkingAndOutputConfigToOpenAIReasoning(
+      parsed.thinking
+        ? parsed.thinking.type === 'enabled'
+          ? { type: 'enabled', budgetTokens: parsed.thinking.budget_tokens }
+          : { type: parsed.thinking.type }
+        : undefined,
+      parsed.output_config,
+    ),
     requestId,
   }
 }

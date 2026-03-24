@@ -271,6 +271,287 @@ describe('stream bridge', () => {
     await server.close()
   })
 
+  it('includes usage in the final OpenAI responses completed event for streamed Claude output', async () => {
+    const server = createServer(createRuntimeConfig('openai-to-claude'), {
+      logger: createSilentLogger(),
+      claudeClient: createClaudeClient({
+        streamMessage: async () => fromArray([
+          {
+            type: 'message_start',
+            message: {
+              id: 'msg_usage',
+              type: 'message',
+              role: 'assistant',
+              model: 'claude-sonnet-4-20250514',
+              content: [],
+              stop_reason: null,
+              stop_sequence: null,
+              usage: { input_tokens: 11, output_tokens: 1 },
+            },
+          },
+          { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+          { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'hello' } },
+          { type: 'content_block_stop', index: 0 },
+          {
+            type: 'message_delta',
+            delta: { stop_reason: 'end_turn', stop_sequence: null },
+            usage: {
+              input_tokens: 11,
+              output_tokens: 7,
+              cache_creation_input_tokens: null,
+              cache_read_input_tokens: null,
+              server_tool_use: null,
+            },
+          },
+          { type: 'message_stop' },
+        ]),
+      }),
+      openAIClient: createOpenAIClient({}),
+    })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/responses',
+      payload: {
+        model: 'gpt-4.1',
+        input: [{ role: 'user', content: [{ type: 'input_text', text: 'hello' }] }],
+        stream: true,
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.body).toContain('"usage":{"input_tokens":11,"output_tokens":7,"total_tokens":18}')
+    await server.close()
+  })
+
+  it('includes usage in the final Claude message_delta for streamed OpenAI responses output', async () => {
+    const server = createServer(createRuntimeConfig('claude-to-openai'), {
+      logger: createSilentLogger(),
+      claudeClient: createClaudeClient({}),
+      openAIClient: createOpenAIClient({
+        streamResponse: async () => fromArray([
+          {
+            type: 'response.created',
+            response: {
+              id: 'resp_1',
+              object: 'response',
+              created_at: 1_700_000_000,
+              status: 'in_progress',
+              model: 'gpt-4.1',
+              output: [],
+              output_text: '',
+            },
+          },
+          { type: 'response.output_item.added', item: { type: 'message', id: 'msg_1' } },
+          { type: 'response.output_text.delta', delta: 'hello' },
+          { type: 'response.output_text.done' },
+          {
+            type: 'response.completed',
+            response: {
+              id: 'resp_1',
+              object: 'response',
+              created_at: 1_700_000_000,
+              status: 'completed',
+              model: 'gpt-4.1',
+              output: [{
+                type: 'message',
+                id: 'msg_1',
+                role: 'assistant',
+                status: 'completed',
+                content: [{ type: 'output_text', text: 'hello', annotations: [] }],
+              }],
+              output_text: 'hello',
+              usage: {
+                input_tokens: 11,
+                output_tokens: 7,
+                total_tokens: 18,
+              },
+            },
+          },
+        ]),
+      }),
+    })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/messages',
+      payload: {
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 128,
+        messages: [{ role: 'user', content: 'hello' }],
+        stream: true,
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.body).toContain('"type":"message_delta"')
+    expect(response.body).toContain('"usage":{"input_tokens":11,"output_tokens":7}')
+    await server.close()
+  })
+
+  it('emits a final chat usage chunk when stream_options.include_usage is enabled', async () => {
+    const server = createServer(createRuntimeConfig('openai-to-claude'), {
+      logger: createSilentLogger(),
+      claudeClient: createClaudeClient({
+        streamMessage: async () => fromArray([
+          {
+            type: 'message_start',
+            message: {
+              id: 'msg_chat_usage',
+              type: 'message',
+              role: 'assistant',
+              model: 'claude-sonnet-4-20250514',
+              content: [],
+              stop_reason: null,
+              stop_sequence: null,
+              usage: { input_tokens: 11, output_tokens: 1 },
+            },
+          },
+          { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'hello' } },
+          {
+            type: 'message_delta',
+            delta: { stop_reason: 'end_turn', stop_sequence: null },
+            usage: {
+              input_tokens: 11,
+              output_tokens: 7,
+              cache_creation_input_tokens: null,
+              cache_read_input_tokens: null,
+              server_tool_use: null,
+            },
+          },
+          { type: 'message_stop' },
+        ]),
+      }),
+      openAIClient: createOpenAIClient({}),
+    })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      payload: {
+        model: 'gpt-4.1',
+        messages: [{ role: 'user', content: 'hello' }],
+        stream: true,
+        stream_options: {
+          include_usage: true,
+        },
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.body).toContain('"finish_reason":"stop"')
+    expect(response.body).toContain('"choices":[]')
+    expect(response.body).toContain('"usage":{"prompt_tokens":11,"completion_tokens":7,"total_tokens":18}')
+    await server.close()
+  })
+
+  it('does not emit a chat usage chunk when stream_options.include_usage is omitted', async () => {
+    const server = createServer(createRuntimeConfig('openai-to-claude'), {
+      logger: createSilentLogger(),
+      claudeClient: createClaudeClient({
+        streamMessage: async () => fromArray([
+          {
+            type: 'message_start',
+            message: {
+              id: 'msg_chat_no_usage',
+              type: 'message',
+              role: 'assistant',
+              model: 'claude-sonnet-4-20250514',
+              content: [],
+              stop_reason: null,
+              stop_sequence: null,
+              usage: { input_tokens: 11, output_tokens: 1 },
+            },
+          },
+          { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'hello' } },
+          {
+            type: 'message_delta',
+            delta: { stop_reason: 'end_turn', stop_sequence: null },
+            usage: {
+              input_tokens: 11,
+              output_tokens: 7,
+              cache_creation_input_tokens: null,
+              cache_read_input_tokens: null,
+              server_tool_use: null,
+            },
+          },
+          { type: 'message_stop' },
+        ]),
+      }),
+      openAIClient: createOpenAIClient({}),
+    })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      payload: {
+        model: 'gpt-4.1',
+        messages: [{ role: 'user', content: 'hello' }],
+        stream: true,
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.body).not.toContain('"choices":[]')
+    expect(response.body).not.toContain('"usage":{"prompt_tokens":11,"completion_tokens":7,"total_tokens":18}')
+    await server.close()
+  })
+
+  it('does not emit a chat usage chunk when stream_options.include_usage is false', async () => {
+    const server = createServer(createRuntimeConfig('openai-to-claude'), {
+      logger: createSilentLogger(),
+      claudeClient: createClaudeClient({
+        streamMessage: async () => fromArray([
+          {
+            type: 'message_start',
+            message: {
+              id: 'msg_chat_no_usage_false',
+              type: 'message',
+              role: 'assistant',
+              model: 'claude-sonnet-4-20250514',
+              content: [],
+              stop_reason: null,
+              stop_sequence: null,
+              usage: { input_tokens: 11, output_tokens: 1 },
+            },
+          },
+          { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'hello' } },
+          {
+            type: 'message_delta',
+            delta: { stop_reason: 'end_turn', stop_sequence: null },
+            usage: {
+              input_tokens: 11,
+              output_tokens: 7,
+              cache_creation_input_tokens: null,
+              cache_read_input_tokens: null,
+              server_tool_use: null,
+            },
+          },
+          { type: 'message_stop' },
+        ]),
+      }),
+      openAIClient: createOpenAIClient({}),
+    })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      payload: {
+        model: 'gpt-4.1',
+        messages: [{ role: 'user', content: 'hello' }],
+        stream: true,
+        stream_options: {
+          include_usage: false,
+        },
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.body).not.toContain('"choices":[]')
+    expect(response.body).not.toContain('"usage":{"prompt_tokens":11,"completion_tokens":7,"total_tokens":18}')
+    await server.close()
+  })
+
   it('emits in-band SSE error after stream has started', async () => {
     async function* brokenStream(): AsyncIterable<Record<string, unknown>> {
       yield { type: 'message_start' }

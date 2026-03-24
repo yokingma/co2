@@ -17,6 +17,7 @@ import type {
   OpenAIResponsesToolChoice,
   RuntimeConfig,
   ToolNameAliases,
+  Usage,
 } from '../shared/types.js'
 import type { ToolChoice } from '../shared/contracts.js'
 import { createMappingError } from '../shared/errors.js'
@@ -71,6 +72,31 @@ export function createTextPart(text: string): NormalizedContentPart {
   return {
     type: 'text',
     text,
+  }
+}
+
+export function extractUsageFromRecord(raw: unknown, fallback?: Usage): Usage | undefined {
+  if (!raw || typeof raw !== 'object') {
+    return fallback
+  }
+
+  const record = raw as Record<string, unknown>
+  const inputTokens = typeof record.input_tokens === 'number' ? record.input_tokens : fallback?.inputTokens
+  const outputTokens = typeof record.output_tokens === 'number' ? record.output_tokens : fallback?.outputTokens
+  const totalTokens = typeof record.total_tokens === 'number'
+    ? record.total_tokens
+    : inputTokens !== undefined && outputTokens !== undefined
+      ? inputTokens + outputTokens
+      : fallback?.totalTokens
+
+  if (inputTokens === undefined && outputTokens === undefined && totalTokens === undefined) {
+    return undefined
+  }
+
+  return {
+    inputTokens,
+    outputTokens,
+    totalTokens,
   }
 }
 
@@ -144,6 +170,44 @@ export function mapClaudeThinkingToOpenAIReasoning(thinking: ClaudeThinkingConfi
 
   return {
     effort: thinkingBudgetToReasoningEffort(thinking.budgetTokens),
+  }
+}
+
+function mapClaudeOutputEffortToOpenAIReasoningEffort(
+  effort: ClaudeOutputEffort | undefined,
+): OpenAIReasoningConfig['effort'] | undefined {
+  switch (effort) {
+    case 'low':
+      return 'low'
+    case 'medium':
+      return 'medium'
+    case 'high':
+      return 'high'
+    case 'max':
+      return 'xhigh'
+    default:
+      return undefined
+  }
+}
+
+export function mapClaudeThinkingAndOutputConfigToOpenAIReasoning(
+  thinking: ClaudeThinkingConfig | undefined,
+  outputConfig: { effort: ClaudeOutputEffort } | undefined,
+): OpenAIReasoningConfig | undefined {
+  if (thinking?.type === 'disabled') {
+    return { effort: 'none' }
+  }
+
+  const reasoningFromThinking = mapClaudeThinkingToOpenAIReasoning(thinking)
+  const effortFromOutputConfig = mapClaudeOutputEffortToOpenAIReasoningEffort(outputConfig?.effort)
+
+  if (!reasoningFromThinking && !effortFromOutputConfig) {
+    return undefined
+  }
+
+  return {
+    ...reasoningFromThinking,
+    effort: effortFromOutputConfig ?? reasoningFromThinking?.effort,
   }
 }
 

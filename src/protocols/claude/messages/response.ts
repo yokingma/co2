@@ -116,14 +116,17 @@ export function createClaudeContentBlockStopEvent(index: number): string {
   })
 }
 
-export function createClaudeMessageDeltaEvent(stopReason: string): string {
+export function createClaudeMessageDeltaEvent(
+  stopReason: string,
+  usage?: { input_tokens?: number; output_tokens?: number },
+): string {
   return formatSseEvent('message_delta', {
     type: 'message_delta',
     delta: {
       stop_reason: stopReason,
       stop_sequence: null,
     },
-    usage: {},
+    usage: usage ?? {},
   })
 }
 

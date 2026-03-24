@@ -379,4 +379,41 @@ describe('o2c chat completions', () => {
     expect(createMessage).not.toHaveBeenCalled()
     await server.close()
   })
+
+  it('rejects unknown stream_options fields instead of silently ignoring typos', async () => {
+    const createMessage = vi.fn(async () => ({
+      id: 'msg_chat_unknown_stream_options_field',
+      type: 'message',
+      role: 'assistant',
+      model: 'claude-sonnet-4-20250514',
+      content: [{ type: 'text', text: 'unexpected' }],
+      stop_reason: 'end_turn',
+      stop_sequence: null,
+      usage: { input_tokens: 1, output_tokens: 1 },
+    }))
+
+    const server = createServer(createRuntimeConfig('openai-to-claude'), {
+      logger: createSilentLogger(),
+      claudeClient: createClaudeClient({ createMessage }),
+      openAIClient: createOpenAIClient({}),
+    })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      payload: {
+        model: 'gpt-4.1',
+        messages: [{ role: 'user', content: 'hello' }],
+        stream: true,
+        stream_options: {
+          include_usag: true,
+        },
+      },
+    })
+
+    expect(response.statusCode).toBe(400)
+    expect(response.json().error.message).toContain('Unrecognized key')
+    expect(createMessage).not.toHaveBeenCalled()
+    await server.close()
+  })
 })

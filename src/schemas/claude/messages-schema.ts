@@ -40,6 +40,10 @@ const thinkingConfigSchema = z.union([
   }).passthrough(),
 ])
 
+const outputConfigSchema = z.object({
+  effort: z.enum(['low', 'medium', 'high', 'max']),
+}).passthrough()
+
 const toolChoiceSchema = z.union([
   z.object({
     type: z.literal('auto'),
@@ -72,6 +76,7 @@ export const claudeMessagesSchema = z.strictObject({
   tools: z.array(toolSchema).optional(),
   tool_choice: toolChoiceSchema.optional(),
   thinking: thinkingConfigSchema.optional(),
+  output_config: outputConfigSchema.optional(),
   stream: z.boolean().optional(),
   temperature: z.number().min(0).max(2).optional(),
   top_p: z.number().gt(0).lte(1).optional(),
