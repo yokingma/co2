@@ -35,7 +35,7 @@ npx @fastagent/co2 start --config ./co2.config.json
       "apiKey": "OPENAI_API_KEY_PLACEHOLDER",
       "baseUrl": "https://api.openai.com/v1",
       "defaultHeaders": {
-        "user-agent": "co2-cli/0.1.0"
+        "user-agent": "co2-cli/0.2.0"
       }
     },
     "anthropic": {
@@ -43,7 +43,7 @@ npx @fastagent/co2 start --config ./co2.config.json
       "baseUrl": "https://api.anthropic.com",
       "version": "2023-06-01",
       "defaultHeaders": {
-        "user-agent": "co2-cli/0.1.0"
+        "user-agent": "co2-cli/0.2.0"
       }
     }
   },
@@ -51,7 +51,12 @@ npx @fastagent/co2 start --config ./co2.config.json
     "defaultOpenAIModel": "gpt-5.4",
     "defaultClaudeModel": "claude-opus-4.6",
     "openAIReasoningEffort": "high",
-    "claudeOutputEffort": "high"
+    "claudeOutputEffort": "high",
+    "skipInboundFields": {
+      "claudeMessages": ["context_management"],
+      "openAIResponses": [],
+      "openAIChatCompletions": []
+    }
   },
   "modelMap": {
     "claude-opus-4.6": "gpt-5.4",
@@ -66,6 +71,27 @@ npx @fastagent/co2 start --config ./co2.config.json
 - 选择 `openai-to-claude` / `o2c` 模式时，实际只会使用 `providers.anthropic`；`providers.openai` 可以省略，不会影响启动和请求处理。
 - 选择 `claude-to-openai` / `c2o` 模式时，实际只会使用 `providers.openai`；`providers.anthropic` 可以省略，不会影响启动和请求处理。
 - `routing.defaultClaudeModel` / `routing.claudeOutputEffort` 只影响 `o2c`，`routing.defaultOpenAIModel` / `routing.openAIReasoningEffort` 只影响 `c2o`。
+- `routing.skipInboundFields` 用来显式跳过已知的顶层请求字段，这样本地网关在遇到新版 SDK / 客户端新增字段时，可以先靠配置保持可用，不必等待 `co2` 发布新版本。
+
+### `routing.skipInboundFields`
+
+`skipInboundFields` 按入口协议分三组：
+
+- `claudeMessages`：作用于 `POST /v1/messages`
+- `openAIResponses`：作用于 `POST /v1/responses`
+- `openAIChatCompletions`：作用于 `POST /v1/chat/completions`
+
+行为说明：
+
+- 只做顶层字段名的精确匹配。
+- 命中后，`co2` 会在边界层先移除该字段，写一条 `warn` 日志，然后继续处理请求。
+- 这个配置适合“真实客户端已经会发，但网关暂时还没建模”的字段。
+- 它不会放松其他字段的 typo 校验；没有配置的拼写错误，例如 `thinkingg`，仍然会继续报错。
+
+常见场景：
+
+- Claude Code 当前会在部分 `c2o /v1/messages` 请求里显式发送 `context_management`，可以把它加到 `skipInboundFields.claudeMessages` 里，避免本地联调被拦住。
+- 如果未来 OpenAI SDK 在 `/v1/responses` 或 `/v1/chat/completions` 顶层新增字段，也可以把对应字段名加到对应的 skip list 里，而不是等网关发新版。
 
 2. 启动服务
 

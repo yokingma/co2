@@ -3,7 +3,7 @@ import type { ClaudeUpstreamClient } from '../src/upstream/claude-client.js'
 import type { OpenAIUpstreamClient } from '../src/upstream/openai-client.js'
 
 export type CapturedLogEntry = {
-  level: 'info' | 'error'
+  level: 'info' | 'warn' | 'error'
   message: string
   data?: Record<string, unknown>
 }
@@ -32,6 +32,11 @@ export function createRuntimeConfig(mode: RuntimeConfig['server']['mode']): Runt
       defaultClaudeModel: 'claude-sonnet-4-20250514',
       claudeOutputEffort: undefined,
       openAIReasoningEffort: undefined,
+      skipInboundFields: {
+        claudeMessages: [],
+        openAIResponses: [],
+        openAIChatCompletions: [],
+      },
     },
     modelMap: {
       'gpt-4.1': 'claude-sonnet-4-20250514',
@@ -61,7 +66,9 @@ export function createCapturingLogger(): { entries: CapturedLogEntry[]; logger: 
       info(message, data) {
         entries.push({ level: 'info', message, data })
       },
-      warn() {},
+      warn(message, data) {
+        entries.push({ level: 'warn', message, data })
+      },
       error(message, data) {
         entries.push({ level: 'error', message, data })
       },

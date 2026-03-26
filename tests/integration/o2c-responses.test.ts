@@ -318,6 +318,45 @@ describe('o2c responses', () => {
     await server.close()
   })
 
+  it('skips configured unknown OpenAI responses fields before strict validation', async () => {
+    const createMessage = vi.fn(async (request) => ({
+      id: 'msg_resp_skipped_future_field',
+      type: 'message',
+      role: 'assistant',
+      model: request.model,
+      content: [{ type: 'text', text: 'ok' }],
+      stop_reason: 'end_turn',
+      stop_sequence: null,
+      usage: { input_tokens: 12, output_tokens: 6 },
+    }))
+
+    const runtimeConfig = createRuntimeConfig('openai-to-claude')
+    runtimeConfig.routing.skipInboundFields.openAIResponses = ['future_response_extension']
+
+    const server = createServer(runtimeConfig, {
+      logger: createSilentLogger(),
+      claudeClient: createClaudeClient({ createMessage }),
+      openAIClient: createOpenAIClient({}),
+    })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/responses',
+      payload: {
+        model: 'gpt-4.1',
+        input: [{ role: 'user', content: [{ type: 'input_text', text: 'hello' }] }],
+        future_response_extension: {
+          enabled: true,
+        },
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(createMessage).toHaveBeenCalled()
+    expect((createMessage.mock.calls[0][0] as Record<string, unknown>).future_response_extension).toBeUndefined()
+    await server.close()
+  })
+
   it('rejects previous_response_id at the boundary with an explicit error', async () => {
     const createMessage = vi.fn(async () => ({
       id: 'msg_resp_previous_response_id',

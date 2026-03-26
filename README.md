@@ -35,7 +35,7 @@ npx @fastagent/co2 start --config ./co2.config.json
       "apiKey": "OPENAI_API_KEY_PLACEHOLDER",
       "baseUrl": "https://api.openai.com/v1",
       "defaultHeaders": {
-        "user-agent": "co2-cli/0.1.0"
+        "user-agent": "co2-cli/0.2.0"
       }
     },
     "anthropic": {
@@ -43,7 +43,7 @@ npx @fastagent/co2 start --config ./co2.config.json
       "baseUrl": "https://api.anthropic.com",
       "version": "2023-06-01",
       "defaultHeaders": {
-        "user-agent": "co2-cli/0.1.0"
+        "user-agent": "co2-cli/0.2.0"
       }
     }
   },
@@ -51,7 +51,12 @@ npx @fastagent/co2 start --config ./co2.config.json
     "defaultOpenAIModel": "gpt-5.4",
     "defaultClaudeModel": "claude-opus-4.6",
     "openAIReasoningEffort": "high",
-    "claudeOutputEffort": "high"
+    "claudeOutputEffort": "high",
+    "skipInboundFields": {
+      "claudeMessages": ["context_management"],
+      "openAIResponses": [],
+      "openAIChatCompletions": []
+    }
   },
   "modelMap": {
     "claude-opus-4.6": "gpt-5.4",
@@ -66,6 +71,27 @@ Notes:
 - In `openai-to-claude` / `o2c`, only `providers.anthropic` is used. `providers.openai` can be omitted without affecting startup or request handling.
 - In `claude-to-openai` / `c2o`, only `providers.openai` is used. `providers.anthropic` can be omitted without affecting startup or request handling.
 - `routing.defaultClaudeModel` and `routing.claudeOutputEffort` only affect `o2c`. `routing.defaultOpenAIModel` and `routing.openAIReasoningEffort` only affect `c2o`.
+- `routing.skipInboundFields` lets you explicitly drop known top-level request fields before validation, so you can keep a local gateway working with newer SDK/client fields without waiting for a new `co2` release.
+
+### `routing.skipInboundFields`
+
+`skipInboundFields` is split by inbound protocol:
+
+- `claudeMessages`: applies to `POST /v1/messages`
+- `openAIResponses`: applies to `POST /v1/responses`
+- `openAIChatCompletions`: applies to `POST /v1/chat/completions`
+
+Behavior:
+
+- Matching is exact and only applies to top-level fields.
+- When a field is skipped, `co2` removes it at the boundary, logs a `warn`, and continues processing the request.
+- This is intended for fields that are known to be sent by real clients but are not yet modeled by the gateway.
+- It does not relax typo protection for other fields; unconfigured misspellings such as `thinkingg` still fail validation.
+
+Common examples:
+
+- Claude Code currently sends `context_management` on some `c2o /v1/messages` requests. Add it to `skipInboundFields.claudeMessages` to keep those requests working.
+- If a future OpenAI SDK starts sending a new top-level field on `/v1/responses` or `/v1/chat/completions`, add that exact field name to the corresponding skip list instead of waiting for a new release.
 
 2. Start the server
 

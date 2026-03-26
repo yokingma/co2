@@ -129,6 +129,11 @@ export type RuntimeConfig = {
     defaultClaudeModel?: string
     claudeOutputEffort?: ClaudeOutputEffort
     openAIReasoningEffort?: string
+    skipInboundFields: {
+      claudeMessages: string[]
+      openAIResponses: string[]
+      openAIChatCompletions: string[]
+    }
   }
   modelMap: Record<string, string>
 }

@@ -1,6 +1,6 @@
 {
   "name": "@fastagent/co2",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "CLI gateway for translating OpenAI and Claude protocols.",
   "private": false,
   "type": "module",

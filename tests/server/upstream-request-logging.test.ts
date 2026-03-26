@@ -151,6 +151,60 @@ describe('upstream request summary logging', () => {
     await server.close()
   })
 
+  it('warns when configured inbound fields are skipped before c2o normalization', async () => {
+    const { entries, logger } = createCapturingLogger()
+
+    const runtimeConfig = createRuntimeConfig('claude-to-openai')
+    runtimeConfig.routing.skipInboundFields.claudeMessages = ['context_management']
+
+    const server = createServer(runtimeConfig, {
+      logger,
+      claudeClient: createClaudeClient({}),
+      openAIClient: createOpenAIClient({
+        createResponse: async () => ({
+          id: 'resp_summary_skipped_fields',
+          object: 'response',
+          status: 'completed',
+          model: 'gpt-4.1',
+          output: [{
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'output_text', text: 'ok' }],
+          }],
+          usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+        }),
+      }),
+    })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/messages?beta=true',
+      payload: {
+        model: 'claude-opus-4.6',
+        max_tokens: 2048,
+        context_management: {
+          edits: [{ type: 'clear_tool_uses_20250919' }],
+        },
+        messages: [{ role: 'user', content: 'hello' }],
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    const warnEntry = entries.find((entry) => entry.level === 'warn' && entry.message === 'Skipped configured inbound fields')
+    expect(warnEntry).toBeDefined()
+    expect(warnEntry?.data).toMatchObject({
+      requestId: 'req-1',
+      inboundContract: 'claudeMessages',
+      skippedFields: ['context_management'],
+    })
+
+    const bodyLogEntry = entries.find((entry) => entry.message === 'OpenAI upstream request body')
+    expect(bodyLogEntry).toBeDefined()
+    expect((bodyLogEntry?.data?.body as Record<string, unknown>).context_management).toBeUndefined()
+
+    await server.close()
+  })
+
   it('logs configured default Claude output effort when request has no reasoning', async () => {
     const { entries, logger } = createCapturingLogger()
 

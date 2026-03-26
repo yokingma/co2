@@ -78,6 +78,46 @@ describe('o2c chat completions', () => {
     await server.close()
   })
 
+  it('skips configured unknown chat completion fields before strict validation', async () => {
+    const createMessage = vi.fn(async (request) => ({
+      id: 'msg_chat_skipped_future_field',
+      type: 'message',
+      role: 'assistant',
+      model: request.model,
+      content: [{ type: 'text', text: 'co2 works' }],
+      stop_reason: 'end_turn',
+      stop_sequence: null,
+      usage: { input_tokens: 10, output_tokens: 5 },
+    }))
+
+    const runtimeConfig = createRuntimeConfig('openai-to-claude')
+    runtimeConfig.routing.skipInboundFields.openAIChatCompletions = ['future_chat_extension']
+
+    const server = createServer(runtimeConfig, {
+      logger: createSilentLogger(),
+      claudeClient: createClaudeClient({ createMessage }),
+      openAIClient: createOpenAIClient({}),
+    })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      payload: {
+        model: 'gpt-4.1',
+        messages: [{ role: 'user', content: 'hello' }],
+        max_completion_tokens: 128,
+        future_chat_extension: {
+          enabled: true,
+        },
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(createMessage).toHaveBeenCalled()
+    expect((createMessage.mock.calls[0][0] as Record<string, unknown>).future_chat_extension).toBeUndefined()
+    await server.close()
+  })
+
   it('maps Claude tool_use back to chat tool_calls', async () => {
     const server = createServer(createRuntimeConfig('openai-to-claude'), {
       logger: createSilentLogger(),

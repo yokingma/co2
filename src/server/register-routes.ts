@@ -29,6 +29,46 @@ function getBodyKeys(body: unknown): string[] {
   return Object.keys(body as Record<string, unknown>).sort()
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function skipConfiguredInboundFields(
+  logger: Logger,
+  requestId: string,
+  inboundContract: 'claudeMessages' | 'openAIResponses' | 'openAIChatCompletions',
+  body: unknown,
+  configuredFields: string[],
+): unknown {
+  if (!isRecord(body) || configuredFields.length === 0) {
+    return body
+  }
+
+  const configuredFieldSet = new Set(configuredFields)
+  const skippedFields = Object.keys(body)
+    .filter((key) => configuredFieldSet.has(key))
+    .sort()
+
+  if (skippedFields.length === 0) {
+    return body
+  }
+
+  logger.warn('Skipped configured inbound fields', {
+    requestId,
+    inboundContract,
+    skippedFields,
+  })
+
+  const sanitizedBody: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(body)) {
+    if (!configuredFieldSet.has(key)) {
+      sanitizedBody[key] = value
+    }
+  }
+
+  return sanitizedBody
+}
+
 function getHeaderSummary(request: FastifyRequest): Record<string, unknown> {
   return {
     contentType: request.headers['content-type'],
@@ -208,7 +248,14 @@ export function registerRoutes(
     server.post('/v1/chat/completions', async (request, reply) => {
       const requestId = getRequestId(request)
       try {
-        const normalized = normalizeOpenAIChatRequest(request.body, config.server.mode, requestId)
+        const sanitizedBody = skipConfiguredInboundFields(
+          logger,
+          requestId,
+          'openAIChatCompletions',
+          request.body,
+          config.routing.skipInboundFields.openAIChatCompletions,
+        )
+        const normalized = normalizeOpenAIChatRequest(sanitizedBody, config.server.mode, requestId)
         const upstreamRequest = mapOpenAIChatToClaudeRequest(config, normalized)
         logUpstreamRequestSummary(logger, 'Claude upstream request summary', requestId, summarizeClaudeUpstreamRequest(upstreamRequest))
         logUpstreamRequestBody(logger, 'Claude upstream request body', requestId, 'anthropic', '/v1/messages', upstreamRequest as Record<string, unknown>)
@@ -243,7 +290,14 @@ export function registerRoutes(
     server.post('/v1/responses', async (request, reply) => {
       const requestId = getRequestId(request)
       try {
-        const normalized = normalizeOpenAIResponsesRequest(request.body, config.server.mode, requestId)
+        const sanitizedBody = skipConfiguredInboundFields(
+          logger,
+          requestId,
+          'openAIResponses',
+          request.body,
+          config.routing.skipInboundFields.openAIResponses,
+        )
+        const normalized = normalizeOpenAIResponsesRequest(sanitizedBody, config.server.mode, requestId)
         const upstreamRequest = mapOpenAIResponsesToClaudeRequest(config, normalized)
         logUpstreamRequestSummary(logger, 'Claude upstream request summary', requestId, summarizeClaudeUpstreamRequest(upstreamRequest))
         logUpstreamRequestBody(logger, 'Claude upstream request body', requestId, 'anthropic', '/v1/messages', upstreamRequest as Record<string, unknown>)
@@ -270,7 +324,14 @@ export function registerRoutes(
     server.post('/v1/messages', async (request, reply) => {
       const requestId = getRequestId(request)
       try {
-        const normalized = normalizeClaudeMessagesRequest(request.body, config.server.mode, requestId)
+        const sanitizedBody = skipConfiguredInboundFields(
+          logger,
+          requestId,
+          'claudeMessages',
+          request.body,
+          config.routing.skipInboundFields.claudeMessages,
+        )
+        const normalized = normalizeClaudeMessagesRequest(sanitizedBody, config.server.mode, requestId)
         const upstreamRequest = mapClaudeMessagesToOpenAIResponsesRequest(config, normalized)
         logUpstreamRequestSummary(logger, 'OpenAI upstream request summary', requestId, summarizeOpenAIResponsesRequest(upstreamRequest))
         logUpstreamRequestBody(logger, 'OpenAI upstream request body', requestId, 'openai', '/v1/responses', upstreamRequest as Record<string, unknown>)

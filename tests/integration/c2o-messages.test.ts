@@ -494,7 +494,128 @@ describe('c2o messages', () => {
     await server.close()
   })
 
-  it('rejects unknown top-level fields instead of silently ignoring typos', async () => {
+  it('rejects context_management with an explicit unsupported parameter error', async () => {
+    const createResponse = vi.fn(async () => ({
+      id: 'resp_message_context_management',
+      object: 'response',
+      status: 'completed',
+      model: 'gpt-4.1',
+      output: [{
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: 'unexpected' }],
+      }],
+      usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+    }))
+
+    const server = createServer(createRuntimeConfig('claude-to-openai'), {
+      logger: createSilentLogger(),
+      claudeClient: createClaudeClient({}),
+      openAIClient: createOpenAIClient({ createResponse }),
+    })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/messages',
+      payload: {
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 128,
+        messages: [{ role: 'user', content: 'hello' }],
+        context_management: {
+          edits: [{ type: 'clear_tool_uses_20250919' }],
+        },
+      },
+    })
+
+    expect(response.statusCode).toBe(400)
+    expect(response.json().type).toBe('error')
+    expect(response.json().error.message).toContain('context_management')
+    expect(createResponse).not.toHaveBeenCalled()
+    await server.close()
+  })
+
+  it('skips configured Claude inbound fields so Claude Code style context_management requests can pass through', async () => {
+    const createResponse = vi.fn(async (request) => ({
+      id: 'resp_message_skipped_context_management',
+      object: 'response',
+      status: 'completed',
+      model: request.model,
+      output: [{
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: 'ok' }],
+      }],
+      usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+    }))
+
+    const runtimeConfig = createRuntimeConfig('claude-to-openai')
+    runtimeConfig.routing.skipInboundFields.claudeMessages = ['context_management']
+
+    const server = createServer(runtimeConfig, {
+      logger: createSilentLogger(),
+      claudeClient: createClaudeClient({}),
+      openAIClient: createOpenAIClient({ createResponse }),
+    })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/messages?beta=true',
+      payload: {
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 128,
+        messages: [{ role: 'user', content: 'hello' }],
+        context_management: {
+          edits: [{ type: 'clear_tool_uses_20250919' }],
+        },
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(createResponse).toHaveBeenCalled()
+    expect((createResponse.mock.calls[0][0] as Record<string, unknown>).context_management).toBeUndefined()
+    await server.close()
+  })
+
+  it('ignores unknown non-typo top-level fields for forward compatibility', async () => {
+    const createResponse = vi.fn(async (request) => ({
+      id: 'resp_message_unknown_extension',
+      object: 'response',
+      status: 'completed',
+      model: request.model,
+      output: [{
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: 'ok' }],
+      }],
+      usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+    }))
+
+    const server = createServer(createRuntimeConfig('claude-to-openai'), {
+      logger: createSilentLogger(),
+      claudeClient: createClaudeClient({}),
+      openAIClient: createOpenAIClient({ createResponse }),
+    })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/messages',
+      payload: {
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 128,
+        messages: [{ role: 'user', content: 'hello' }],
+        future_extension: {
+          enabled: true,
+        },
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(createResponse).toHaveBeenCalled()
+    expect((createResponse.mock.calls[0][0] as Record<string, unknown>).future_extension).toBeUndefined()
+    await server.close()
+  })
+
+  it('rejects likely typo top-level fields instead of silently ignoring them', async () => {
     const createResponse = vi.fn(async () => ({
       id: 'resp_message_unknown_field',
       object: 'response',

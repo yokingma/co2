@@ -124,6 +124,35 @@ describe('loadRuntimeConfig', () => {
     expect(runtimeConfig.routing.claudeOutputEffort).toBe('max')
   })
 
+  it('loads configurable inbound field skip lists', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'co2-skip-inbound-fields-'))
+    const configPath = join(directory, 'co2.config.json')
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        server: {
+          mode: 'claude-to-openai',
+        },
+        routing: {
+          skipInboundFields: {
+            claudeMessages: ['context_management'],
+            openAIResponses: ['future_response_extension'],
+            openAIChatCompletions: ['future_chat_extension'],
+          },
+        },
+      }),
+    )
+
+    process.env.OPENAI_API_KEY = 'env-openai-key'
+    const runtimeConfig = await loadRuntimeConfig({ config: configPath })
+
+    expect(runtimeConfig.routing.skipInboundFields).toEqual({
+      claudeMessages: ['context_management'],
+      openAIResponses: ['future_response_extension'],
+      openAIChatCompletions: ['future_chat_extension'],
+    })
+  })
+
   it('uses ANTHROPIC_AUTH_TOKEN when ANTHROPIC_API_KEY is unset', async () => {
     process.env.ANTHROPIC_API_KEY = ''
     process.env.ANTHROPIC_AUTH_TOKEN = 'auth-token-only'

@@ -13,6 +13,12 @@ const logLevelSchema = z.enum(['debug', 'info', 'warn', 'error'])
 const portSchema = z.number().int().min(1).max(65535)
 const defaultHeadersSchema = z.record(z.string().min(1), z.string())
 const claudeOutputEffortSchema = z.enum(['low', 'medium', 'high', 'max'])
+const inboundFieldSkipListSchema = z.array(z.string().min(1))
+const skipInboundFieldsSchema = z.strictObject({
+  claudeMessages: inboundFieldSkipListSchema.default([]),
+  openAIResponses: inboundFieldSkipListSchema.default([]),
+  openAIChatCompletions: inboundFieldSkipListSchema.default([]),
+})
 const emptyEnvStringToUndefined = (value: unknown): unknown => value === '' ? undefined : value
 const optionalEnvStringSchema = z.preprocess(emptyEnvStringToUndefined, z.string().min(1).optional())
 const optionalEnvUrlSchema = z.preprocess(emptyEnvStringToUndefined, z.string().url().optional())
@@ -61,6 +67,7 @@ export const configFileSchema = z.strictObject({
       defaultClaudeModel: z.string().min(1).optional(),
       claudeOutputEffort: claudeOutputEffortSchema.optional(),
       openAIReasoningEffort: z.string().min(1).optional(),
+      skipInboundFields: skipInboundFieldsSchema.optional(),
     })
     .optional(),
   modelMap: z.record(z.string().min(1), z.string().min(1)).optional(),
@@ -91,6 +98,11 @@ export const runtimeConfigSchema = z.strictObject({
     defaultClaudeModel: z.string().min(1).optional(),
     claudeOutputEffort: claudeOutputEffortSchema.optional(),
     openAIReasoningEffort: z.string().min(1).optional(),
+    skipInboundFields: skipInboundFieldsSchema.default({
+      claudeMessages: [],
+      openAIResponses: [],
+      openAIChatCompletions: [],
+    }),
   }),
   modelMap: z.record(z.string().min(1), z.string().min(1)),
 })

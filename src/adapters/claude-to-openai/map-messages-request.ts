@@ -1,8 +1,23 @@
-import { claudeMessagesSchema } from '../../schemas/claude/messages-schema.js'
+import { claudeMessagesSchema, claudeMessagesTopLevelKeys } from '../../schemas/claude/messages-schema.js'
 import { buildOpenAIResponsesRequest, createTextPart, mapClaudeThinkingAndOutputConfigToOpenAIReasoning, stringifyToolInput } from '../shared.js'
 import type { NormalizedContentPart, NormalizedMessage, NormalizedRequest, RuntimeConfig } from '../../shared/types.js'
 import type { ToolChoice } from '../../shared/contracts.js'
-import { createUnsupportedParameterError, createUnsupportedToolError } from '../../shared/errors.js'
+import { createUnsupportedParameterError, createUnsupportedToolError, createValidationError } from '../../shared/errors.js'
+
+const CLAUDE_MESSAGES_TOP_LEVEL_KEY_SET = new Set<string>(claudeMessagesTopLevelKeys)
+
+const UNSUPPORTED_CLAUDE_MESSAGES_FIELDS = new Map<string, string>([
+  ['top_k', 'top_k is not supported because there is no accurate OpenAI Responses equivalent in V1'],
+  [
+    'context_management',
+    'context_management is not supported in V1 because OpenAI Responses has no equivalent and silently ignoring it would drop Anthropic context-editing semantics',
+  ],
+])
+
+const CLAUDE_MESSAGES_KNOWN_FIELD_NAMES = [
+  ...claudeMessagesTopLevelKeys,
+  ...UNSUPPORTED_CLAUDE_MESSAGES_FIELDS.keys(),
+]
 
 function normalizeToolChoice(toolChoice: ReturnType<typeof claudeMessagesSchema.parse>['tool_choice']): ToolChoice | undefined {
   if (!toolChoice || toolChoice.type === 'none') {
@@ -72,19 +87,70 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+function levenshteinDistance(left: string, right: string): number {
+  if (left === right) {
+    return 0
+  }
+
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index)
+
+  for (let leftIndex = 0; leftIndex < left.length; leftIndex += 1) {
+    let diagonal = previous[0] ?? 0
+    previous[0] = leftIndex + 1
+
+    for (let rightIndex = 0; rightIndex < right.length; rightIndex += 1) {
+      const up = previous[rightIndex + 1] ?? 0
+      const nextDiagonal = up
+      const substitutionCost = left[leftIndex] === right[rightIndex] ? 0 : 1
+      previous[rightIndex + 1] = Math.min(
+        up + 1,
+        (previous[rightIndex] ?? 0) + 1,
+        diagonal + substitutionCost,
+      )
+      diagonal = nextDiagonal
+    }
+  }
+
+  return previous[right.length] ?? 0
+}
+
+function getUnknownTopLevelKeys(body: Record<string, unknown>): string[] {
+  return Object.keys(body).filter((key) => !CLAUDE_MESSAGES_TOP_LEVEL_KEY_SET.has(key))
+}
+
+function findLikelyTypoKey(key: string): string | undefined {
+  const normalizedKey = key.toLowerCase()
+
+  return CLAUDE_MESSAGES_KNOWN_FIELD_NAMES.find((knownKey) => {
+    if (normalizedKey[0] !== knownKey[0]) {
+      return false
+    }
+
+    return levenshteinDistance(normalizedKey, knownKey) <= 2
+  })
+}
+
 function validateCompatibleClaudeMessagesRequest(body: unknown): void {
   if (!isRecord(body)) {
     return
   }
 
-  if (body.top_k !== undefined) {
-    throw createUnsupportedParameterError('top_k is not supported because there is no accurate OpenAI Responses equivalent in V1', 'top_k')
+  for (const [field, message] of UNSUPPORTED_CLAUDE_MESSAGES_FIELDS) {
+    if (body[field] !== undefined) {
+      throw createUnsupportedParameterError(message, field)
+    }
   }
 
   const tools = Array.isArray(body.tools) ? body.tools : []
   for (const tool of tools) {
     if (isRecord(tool) && typeof tool.type === 'string') {
       throw createUnsupportedToolError('Only client-defined tools are supported in V1')
+    }
+  }
+
+  for (const unknownKey of getUnknownTopLevelKeys(body)) {
+    if (findLikelyTypoKey(unknownKey)) {
+      throw createValidationError(`Unrecognized key: "${unknownKey}"`, unknownKey)
     }
   }
 }

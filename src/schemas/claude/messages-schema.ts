@@ -68,7 +68,24 @@ const messageSchema = z.object({
   content: z.union([z.string(), z.array(contentBlockSchema).min(1)]),
 }).passthrough()
 
-export const claudeMessagesSchema = z.strictObject({
+export const claudeMessagesTopLevelKeys = [
+  'model',
+  'max_tokens',
+  'messages',
+  'system',
+  'tools',
+  'tool_choice',
+  'thinking',
+  'output_config',
+  'stream',
+  'temperature',
+  'top_p',
+  'stop_sequences',
+  'metadata',
+  'container',
+] as const
+
+export const claudeMessagesSchema = z.object({
   model: z.string().min(1),
   max_tokens: z.number().int().positive(),
   messages: z.array(messageSchema).min(1),
@@ -84,4 +101,4 @@ export const claudeMessagesSchema = z.strictObject({
   // Only the explicitly supported control-plane fields should bypass strict validation.
   metadata: z.unknown().optional(),
   container: z.string().min(1).optional(),
-})
+}).passthrough()
