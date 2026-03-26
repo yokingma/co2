@@ -40,6 +40,51 @@ describe('c2o messages', () => {
     await server.close()
   })
 
+  it('returns a stable Claude usage object when upstream usage is missing', async () => {
+    const createResponse = vi.fn(async (request) => ({
+      id: 'resp_message_missing_usage',
+      object: 'response',
+      status: 'completed',
+      model: request.model,
+      output: [{
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: 'claude compatible' }],
+      }],
+    }))
+
+    const server = createServer(createRuntimeConfig('claude-to-openai'), {
+      logger: createSilentLogger(),
+      claudeClient: createClaudeClient({}),
+      openAIClient: createOpenAIClient({ createResponse }),
+    })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/messages',
+      payload: {
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 128,
+        messages: [{ role: 'user', content: 'hello' }],
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json().usage).toEqual({
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_creation_input_tokens: null,
+      cache_read_input_tokens: null,
+      server_tool_use: null,
+      service_tier: null,
+      cache_creation: null,
+      inference_geo: null,
+      iterations: null,
+      speed: null,
+    })
+    await server.close()
+  })
+
   it('accepts extra Claude control-plane fields without failing validation', async () => {
     const createResponse = vi.fn(async (request) => ({
       id: 'resp_message_compatible_fields',

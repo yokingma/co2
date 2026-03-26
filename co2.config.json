@@ -10,14 +10,14 @@
       "apiKey": "OPENAI_API_KEY_PLACEHOLDER",
       "baseUrl": "https://api.openai.com/v1",
       "defaultHeaders": {
-        "user-agent": "co2-proxy/0.2.0"
+        "user-agent": "co2-proxy/0.2.1"
       }
     },
     "anthropic": {
       "apiKey": "ANTHROPIC_API_KEY_PLACEHOLDER",
       "baseUrl": "https://api.anthropic.com",
       "defaultHeaders": {
-        "user-agent": "co2-proxy/0.2.0"
+        "user-agent": "co2-proxy/0.2.1"
       }
     }
   },

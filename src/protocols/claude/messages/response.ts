@@ -3,6 +3,28 @@ import { formatSseEvent } from '../../../shared/sse.js'
 import { parseToolArguments } from '../../../adapters/shared.js'
 import type { NormalizedContentPart, NormalizedResponse } from '../../../shared/types.js'
 
+type ClaudeResponseUsage = {
+  input_tokens: number
+  output_tokens: number
+  cache_creation_input_tokens: number | null
+  cache_read_input_tokens: number | null
+  server_tool_use: null
+  service_tier: null
+  cache_creation: null
+  inference_geo: null
+  iterations: null
+  speed: null
+}
+
+type ClaudeDeltaUsage = {
+  input_tokens: number | null
+  output_tokens: number
+  cache_creation_input_tokens: number | null
+  cache_read_input_tokens: number | null
+  server_tool_use: null
+  iterations: null
+}
+
 function createClaudeContent(response: NormalizedResponse): Record<string, unknown>[] {
   return response.message.parts.flatMap((part): Record<string, unknown>[] => {
     if (part.type === 'text') {
@@ -25,6 +47,34 @@ function createClaudeContent(response: NormalizedResponse): Record<string, unkno
   })
 }
 
+function createClaudeResponseUsage(usage: NormalizedResponse['usage'] | undefined): ClaudeResponseUsage {
+  return {
+    input_tokens: usage?.inputTokens ?? 0,
+    output_tokens: usage?.outputTokens ?? 0,
+    cache_creation_input_tokens: null,
+    cache_read_input_tokens: null,
+    server_tool_use: null,
+    service_tier: null,
+    cache_creation: null,
+    inference_geo: null,
+    iterations: null,
+    speed: null,
+  }
+}
+
+function createClaudeDeltaUsage(
+  usage?: { input_tokens?: number; output_tokens?: number },
+): ClaudeDeltaUsage {
+  return {
+    input_tokens: usage?.input_tokens ?? null,
+    output_tokens: usage?.output_tokens ?? 0,
+    cache_creation_input_tokens: null,
+    cache_read_input_tokens: null,
+    server_tool_use: null,
+    iterations: null,
+  }
+}
+
 export function buildClaudeMessagesResponse(response: NormalizedResponse, publicModel: string): Record<string, unknown> {
   const hasToolCalls = response.message.parts.some((part) => part.type === 'tool-call')
   return {
@@ -35,12 +85,7 @@ export function buildClaudeMessagesResponse(response: NormalizedResponse, public
     content: createClaudeContent(response),
     stop_reason: mapOpenAIFinishReasonToClaude(response.finishReason, hasToolCalls),
     stop_sequence: null,
-    usage: response.usage
-      ? {
-          input_tokens: response.usage.inputTokens,
-          output_tokens: response.usage.outputTokens,
-        }
-      : undefined,
+    usage: createClaudeResponseUsage(response.usage),
   }
 }
 
@@ -55,10 +100,7 @@ export function createClaudeMessageStartEvent(responseId: string, publicModel: s
       content: [],
       stop_reason: null,
       stop_sequence: null,
-      usage: {
-        input_tokens: 0,
-        output_tokens: 0,
-      },
+      usage: createClaudeResponseUsage(undefined),
     },
   })
 }
@@ -126,7 +168,7 @@ export function createClaudeMessageDeltaEvent(
       stop_reason: stopReason,
       stop_sequence: null,
     },
-    usage: usage ?? {},
+    usage: createClaudeDeltaUsage(usage),
   })
 }
 

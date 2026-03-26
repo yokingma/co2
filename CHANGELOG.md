@@ -2,6 +2,7 @@
 
 ## 2026-03-23
 
+- 修复 `c2o /v1/messages` 的 Claude usage 兼容性：即使 OpenAI Responses 上游缺失 `usage`，非流式响应与流式 `message_start` 现在也会回传稳定的 Claude 风格 usage scaffold（补齐 `cache_creation_input_tokens`、`cache_read_input_tokens`、`server_tool_use`、`service_tier`、`cache_creation`、`inference_geo`、`iterations`、`speed` 等字段），避免 Claude Code 在读取 `usage.speed` 等扩展字段时因 `usage` 缺失而崩溃。
 - 修复流式 token usage 映射：`o2c /v1/responses` 现在会在最终 `response.completed` 快照里携带 `usage`；`c2o /v1/messages` 现在会在最终 `message_delta` 里回写准确的 `input_tokens/output_tokens`；`o2c /v1/chat/completions` 新增 `stream_options.include_usage` 兼容，仅在显式开启时追加官方风格的最终 usage chunk。
 - 收紧 `o2c /v1/chat/completions` 的 `stream_options` 边界：嵌套对象现在只接受 `include_usage`，未知字段会按严格校验直接报错；同时补充回归测试，锁定 `include_usage` 缺失或为 `false` 时不得额外发出 usage chunk。
 - 修复 `c2o /v1/messages` 对 Claude Code 请求体的兼容性：入站 schema 现在接受 `output_config.effort`，并将其近似映射到 OpenAI `responses.reasoning.effort`；当请求同时携带 `thinking` 与 `output_config` 时，显式 `output_config.effort` 会覆盖由 `thinking` 推导出的默认 effort。

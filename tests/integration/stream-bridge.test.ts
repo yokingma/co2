@@ -385,7 +385,7 @@ describe('stream bridge', () => {
 
     expect(response.statusCode).toBe(200)
     expect(response.body).toContain('"type":"message_delta"')
-    expect(response.body).toContain('"usage":{"input_tokens":11,"output_tokens":7}')
+    expect(response.body).toContain('"usage":{"input_tokens":11,"output_tokens":7,"cache_creation_input_tokens":null,"cache_read_input_tokens":null,"server_tool_use":null,"iterations":null}')
     await server.close()
   })
 
