@@ -35,7 +35,7 @@ npx @fastagent/co2 start --config ./co2.config.json
       "apiKey": "OPENAI_API_KEY_PLACEHOLDER",
       "baseUrl": "https://api.openai.com/v1",
       "defaultHeaders": {
-        "user-agent": "co2-cli/0.2.2"
+        "user-agent": "co2-cli/0.2.3"
       }
     },
     "anthropic": {
@@ -43,7 +43,7 @@ npx @fastagent/co2 start --config ./co2.config.json
       "baseUrl": "https://api.anthropic.com",
       "version": "2023-06-01",
       "defaultHeaders": {
-        "user-agent": "co2-cli/0.2.2"
+        "user-agent": "co2-cli/0.2.3"
       }
     }
   },
