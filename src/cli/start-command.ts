@@ -3,10 +3,25 @@ import { loadRuntimeConfig } from '../config/load-runtime-config.js'
 import { createLogger } from '../shared/logger.js'
 import { createServer } from '../server/create-server.js'
 import { toGatewayError } from '../shared/errors.js'
+import type { RuntimeConfig } from '../shared/types.js'
 
 async function handleShutdown(server: ReturnType<typeof createServer>, logger: ReturnType<typeof createLogger>, signal: string): Promise<void> {
   logger.info('Shutting down server', { signal })
   await server.close()
+}
+
+function normalizeBaseAddress(address: string): string {
+  return address.endsWith('/') ? address.slice(0, -1) : address
+}
+
+function formatClientBaseUrlHint(address: string, mode: RuntimeConfig['server']['mode']): string {
+  const baseAddress = normalizeBaseAddress(address)
+
+  if (mode === 'openai-to-claude') {
+    return `Client base URL: OPENAI_BASE_URL=${baseAddress}/v1`
+  }
+
+  return `Client base URL: ANTHROPIC_BASE_URL=${baseAddress}`
 }
 
 export function registerStartCommand(program: Command): void {
@@ -36,6 +51,8 @@ export function registerStartCommand(program: Command): void {
           address,
           mode: runtimeConfig.server.mode,
         })
+        console.log(`CO2 server started on ${address} [${runtimeConfig.server.mode}]`)
+        console.log(formatClientBaseUrlHint(address, runtimeConfig.server.mode))
 
         const shutdown = async (signal: string) => {
           await handleShutdown(server, logger, signal)

@@ -4,6 +4,7 @@
 
 - 修复 `c2o /v1/messages` 对 Claude Code beta `output_config.effort` 的兼容性：入站 schema 现在额外接受 `none`、`minimal`、`xhigh` 这类 OpenAI 风格 effort 别名，并在标准化阶段分别映射到 OpenAI Responses `reasoning.effort`，避免 `beta=true` 请求因本地校验过严而报 `validation_error`。
 - 补充 `c2o messages` 回归测试：覆盖 `beta=true` 请求里 `output_config.effort = minimal|none|xhigh` 的成功透传与映射，锁定这类 Claude Code 请求不再回退到 400。
+- 调整 CLI `start` 成功后的标准输出：无论 `logLevel` 如何，都会额外输出一行人类可读的启动提示和一行客户端代理 `base URL` 提示；`claude-to-openai` 模式提示 `ANTHROPIC_BASE_URL=http://host:port`，`openai-to-claude` 模式提示 `OPENAI_BASE_URL=http://host:port/v1`，同时保留 `info` 级 JSON 启动日志。
 
 ## 2026-03-23
 
