@@ -1,5 +1,6 @@
 import type {
   ClaudeContentBlock,
+  ClaudeInboundOutputEffort,
   ClaudeMessage,
   ClaudeMessagesRequest,
   ClaudeToolChoice,
@@ -174,15 +175,20 @@ export function mapClaudeThinkingToOpenAIReasoning(thinking: ClaudeThinkingConfi
 }
 
 function mapClaudeOutputEffortToOpenAIReasoningEffort(
-  effort: ClaudeOutputEffort | undefined,
+  effort: ClaudeInboundOutputEffort | undefined,
 ): OpenAIReasoningConfig['effort'] | undefined {
   switch (effort) {
+    case 'none':
+      return 'none'
+    case 'minimal':
+      return 'minimal'
     case 'low':
       return 'low'
     case 'medium':
       return 'medium'
     case 'high':
       return 'high'
+    case 'xhigh':
     case 'max':
       return 'xhigh'
     default:
@@ -192,7 +198,7 @@ function mapClaudeOutputEffortToOpenAIReasoningEffort(
 
 export function mapClaudeThinkingAndOutputConfigToOpenAIReasoning(
   thinking: ClaudeThinkingConfig | undefined,
-  outputConfig: { effort: ClaudeOutputEffort } | undefined,
+  outputConfig: { effort: ClaudeInboundOutputEffort } | undefined,
 ): OpenAIReasoningConfig | undefined {
   if (thinking?.type === 'disabled') {
     return { effort: 'none' }

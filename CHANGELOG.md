@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-03-28
+
+- 修复 `c2o /v1/messages` 对 Claude Code beta `output_config.effort` 的兼容性：入站 schema 现在额外接受 `none`、`minimal`、`xhigh` 这类 OpenAI 风格 effort 别名，并在标准化阶段分别映射到 OpenAI Responses `reasoning.effort`，避免 `beta=true` 请求因本地校验过严而报 `validation_error`。
+- 补充 `c2o messages` 回归测试：覆盖 `beta=true` 请求里 `output_config.effort = minimal|none|xhigh` 的成功透传与映射，锁定这类 Claude Code 请求不再回退到 400。
+
 ## 2026-03-23
 
 - 修复 `c2o /v1/messages` 的 Claude usage 兼容性：即使 OpenAI Responses 上游缺失 `usage`，非流式响应与流式 `message_start` 现在也会回传稳定的 Claude 风格 usage scaffold（补齐 `cache_creation_input_tokens`、`cache_read_input_tokens`、`server_tool_use`、`service_tier`、`cache_creation`、`inference_geo`、`iterations`、`speed` 等字段），避免 Claude Code 在读取 `usage.speed` 等扩展字段时因 `usage` 缺失而崩溃。

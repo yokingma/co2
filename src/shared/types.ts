@@ -57,6 +57,7 @@ export type ClaudeThinkingConfig =
     }
 
 export type ClaudeOutputEffort = 'low' | 'medium' | 'high' | 'max'
+export type ClaudeInboundOutputEffort = ClaudeOutputEffort | 'none' | 'minimal' | 'xhigh'
 
 export type ClaudeOutputConfig = {
   effort: ClaudeOutputEffort

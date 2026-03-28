@@ -40,8 +40,9 @@ const thinkingConfigSchema = z.union([
   }).passthrough(),
 ])
 
+// Claude Code beta can send OpenAI-style effort aliases here.
 const outputConfigSchema = z.object({
-  effort: z.enum(['low', 'medium', 'high', 'max']),
+  effort: z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']),
 }).passthrough()
 
 const toolChoiceSchema = z.union([
