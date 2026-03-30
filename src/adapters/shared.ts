@@ -1,16 +1,20 @@
 import type {
   ClaudeContentBlock,
   ClaudeInboundOutputEffort,
+  ClaudeImageBlock,
   ClaudeMessage,
   ClaudeMessagesRequest,
   ClaudeToolChoice,
   ClaudeToolDefinition,
+  NormalizedImageSource,
   NormalizedContentPart,
   NormalizedMessage,
+  NormalizationWarning,
   ClaudeThinkingConfig,
   ClaudeOutputEffort,
   NormalizedRequest,
   NormalizedToolDefinition,
+  OpenAIResponsesInputImage,
   OpenAIReasoningConfig,
   OpenAIUpstreamReasoningConfig,
   OpenAIResponsesInputItem,
@@ -73,6 +77,110 @@ export function createTextPart(text: string): NormalizedContentPart {
   return {
     type: 'text',
     text,
+  }
+}
+
+export function createImagePart(source: NormalizedImageSource): Extract<NormalizedContentPart, { type: 'image' }> {
+  return {
+    type: 'image',
+    source,
+  }
+}
+
+export function createNormalizationWarning(path: string, reason: string): NormalizationWarning {
+  return {
+    path,
+    reason,
+    action: 'ignored',
+  }
+}
+
+export function isHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value)
+    return url.protocol === 'http:' || url.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
+export function parseImageDataUrl(value: string): { mediaType: string; data: string } | undefined {
+  const match = /^data:(image\/[a-zA-Z0-9.+-]+);base64,([^\s]+)$/.exec(value)
+  if (!match) {
+    return undefined
+  }
+
+  const [, mediaType, data] = match
+  if (!mediaType || !data) {
+    return undefined
+  }
+
+  return {
+    mediaType,
+    data,
+  }
+}
+
+export function parseOpenAIImageUrl(
+  imageUrl: string,
+): { part?: Extract<NormalizedContentPart, { type: 'image' }>; reason?: string } {
+  if (isHttpUrl(imageUrl)) {
+    return {
+      part: createImagePart({
+        type: 'url',
+        url: imageUrl,
+      }),
+    }
+  }
+
+  const parsedDataUrl = parseImageDataUrl(imageUrl)
+  if (parsedDataUrl) {
+    return {
+      part: createImagePart({
+        type: 'base64',
+        mediaType: parsedDataUrl.mediaType,
+        data: parsedDataUrl.data,
+      }),
+    }
+  }
+
+  return {
+    reason: 'Unsupported image URL format; expected http(s) URL or data:image/...;base64,...',
+  }
+}
+
+export function normalizedImagePartToAnthropicBlock(part: Extract<NormalizedContentPart, { type: 'image' }>): ClaudeImageBlock {
+  if (part.source.type === 'url') {
+    return {
+      type: 'image',
+      source: {
+        type: 'url',
+        url: part.source.url,
+      },
+    }
+  }
+
+  return {
+    type: 'image',
+    source: {
+      type: 'base64',
+      media_type: part.source.mediaType,
+      data: part.source.data,
+    },
+  }
+}
+
+export function normalizedImagePartToOpenAIInputImage(part: Extract<NormalizedContentPart, { type: 'image' }>): OpenAIResponsesInputImage {
+  if (part.source.type === 'url') {
+    return {
+      type: 'input_image',
+      image_url: part.source.url,
+    }
+  }
+
+  return {
+    type: 'input_image',
+    image_url: `data:${part.source.mediaType};base64,${part.source.data}`,
   }
 }
 
@@ -315,6 +423,10 @@ function toAnthropicContentBlocks(
       return [{ type: 'text', text: part.text }]
     }
 
+    if (part.type === 'image' && role === 'user') {
+      return [normalizedImagePartToAnthropicBlock(part)]
+    }
+
     if (part.type === 'tool-call' && role === 'assistant') {
       return [{
         type: 'tool_use',
@@ -355,15 +467,38 @@ export function normalizedMessagesToAnthropicMessages(messages: NormalizedMessag
     })
 }
 
+function toResponsesContentParts(
+  role: 'user' | 'assistant' | 'tool',
+  parts: NormalizedContentPart[],
+): Array<import('../shared/types.js').OpenAIResponsesInputText | import('../shared/types.js').OpenAIResponsesOutputTextInput | OpenAIResponsesInputImage> {
+  const content: Array<import('../shared/types.js').OpenAIResponsesInputText | import('../shared/types.js').OpenAIResponsesOutputTextInput | OpenAIResponsesInputImage> = []
+
+  for (const part of parts) {
+    if (part.type === 'text') {
+      content.push({
+        type: role === 'assistant' ? 'output_text' : 'input_text',
+        text: part.text,
+      })
+      continue
+    }
+
+    if (part.type === 'image' && role === 'user') {
+      content.push(normalizedImagePartToOpenAIInputImage(part))
+    }
+  }
+
+  return content
+}
+
 function pushResponsesMessageItem(items: OpenAIResponsesInputItem[], role: 'user' | 'assistant' | 'tool', parts: NormalizedContentPart[]): void {
-  const text = collectText(parts)
-  if (text.length === 0) {
+  const content = toResponsesContentParts(role, parts)
+  if (content.length === 0) {
     return
   }
 
   items.push({
     role,
-    content: [{ type: role === 'assistant' ? 'output_text' : 'input_text', text }],
+    content,
   })
 }
 
@@ -376,8 +511,7 @@ export function normalizedMessagesToResponsesInput(messages: NormalizedMessage[]
     }
 
     if (message.role === 'user' || message.role === 'assistant') {
-      const textParts = message.parts.filter((part): part is Extract<NormalizedContentPart, { type: 'text' }> => part.type === 'text')
-      pushResponsesMessageItem(items, message.role, textParts)
+      pushResponsesMessageItem(items, message.role, message.parts)
     }
 
     for (const part of message.parts) {

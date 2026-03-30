@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createServer } from '../../src/server/create-server.js'
-import { createClaudeClient, createOpenAIClient, createRuntimeConfig, createSilentLogger } from '../helpers.js'
+import { createCapturingLogger, createClaudeClient, createOpenAIClient, createRuntimeConfig, createSilentLogger } from '../helpers.js'
 
 describe('o2c chat completions', () => {
   it('maps text requests to Claude and back to chat completion', async () => {
@@ -35,6 +35,143 @@ describe('o2c chat completions', () => {
     expect(createMessage).toHaveBeenCalled()
     expect(createMessage.mock.calls[0][0].model).toBe('claude-sonnet-4-20250514')
     expect(response.json().choices[0].message.content).toBe('co2 works')
+    await server.close()
+  })
+
+  it('maps chat multimodal base64 image inputs to Anthropic image blocks', async () => {
+    const createMessage = vi.fn(async (request) => ({
+      id: 'msg_chat_image_base64',
+      type: 'message',
+      role: 'assistant',
+      model: request.model,
+      content: [{ type: 'text', text: 'image received' }],
+      stop_reason: 'end_turn',
+      stop_sequence: null,
+      usage: { input_tokens: 10, output_tokens: 5 },
+    }))
+
+    const server = createServer(createRuntimeConfig('openai-to-claude'), {
+      logger: createSilentLogger(),
+      claudeClient: createClaudeClient({ createMessage }),
+      openAIClient: createOpenAIClient({}),
+    })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      payload: {
+        model: 'gpt-4.1',
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'text', text: 'describe this image' },
+            { type: 'image_url', image_url: { url: 'data:image/png;base64,QUFBQQ==' } },
+          ],
+        }],
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(createMessage).toHaveBeenCalled()
+    expect(createMessage.mock.calls[0][0].messages).toEqual([
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'describe this image' },
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'QUFBQQ==' } },
+        ],
+      },
+    ])
+    await server.close()
+  })
+
+  it('warns when chat image detail is dropped but still forwards the message', async () => {
+    const createMessage = vi.fn(async (request) => ({
+      id: 'msg_chat_image_detail_warning',
+      type: 'message',
+      role: 'assistant',
+      model: request.model,
+      content: [{ type: 'text', text: 'image received' }],
+      stop_reason: 'end_turn',
+      stop_sequence: null,
+      usage: { input_tokens: 10, output_tokens: 5 },
+    }))
+    const { entries, logger } = createCapturingLogger()
+
+    const server = createServer(createRuntimeConfig('openai-to-claude'), {
+      logger,
+      claudeClient: createClaudeClient({ createMessage }),
+      openAIClient: createOpenAIClient({}),
+    })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      payload: {
+        model: 'gpt-4.1',
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'text', text: 'describe this image' },
+            { type: 'image_url', image_url: { url: 'https://example.com/a.png', detail: 'low' } },
+          ],
+        }],
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(createMessage).toHaveBeenCalled()
+
+    const warnEntry = entries.find((entry) => entry.level === 'warn' && entry.message === 'Ignored inbound data during normalization')
+    expect(warnEntry?.data).toMatchObject({
+      inboundContract: 'openAIChatCompletions',
+      path: 'messages[0].content[1].image_url.detail',
+      action: 'ignored',
+    })
+    await server.close()
+  })
+
+  it('ignores unsupported chat output-modalities fields with warnings instead of rejecting the request', async () => {
+    const createMessage = vi.fn(async (request) => ({
+      id: 'msg_chat_ignored_output_modalities',
+      type: 'message',
+      role: 'assistant',
+      model: request.model,
+      content: [{ type: 'text', text: 'co2 works' }],
+      stop_reason: 'end_turn',
+      stop_sequence: null,
+      usage: { input_tokens: 10, output_tokens: 5 },
+    }))
+    const { entries, logger } = createCapturingLogger()
+
+    const server = createServer(createRuntimeConfig('openai-to-claude'), {
+      logger,
+      claudeClient: createClaudeClient({ createMessage }),
+      openAIClient: createOpenAIClient({}),
+    })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      payload: {
+        model: 'gpt-4.1',
+        messages: [{ role: 'user', content: 'hello' }],
+        modalities: ['text', 'audio'],
+        audio: {
+          format: 'wav',
+        },
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(createMessage).toHaveBeenCalled()
+
+    const warningPaths = entries
+      .filter((entry) => entry.level === 'warn' && entry.message === 'Ignored inbound data during normalization')
+      .map((entry) => entry.data?.path)
+      .sort()
+
+    expect(warningPaths).toEqual(['audio', 'modalities'])
     await server.close()
   })
 

@@ -13,10 +13,25 @@ export type ToolNameAliases = {
   anthropicToOriginal: Record<string, string>
 }
 
+export type NormalizedImageSource =
+  | {
+      type: 'url'
+      url: string
+    }
+  | {
+      type: 'base64'
+      mediaType: string
+      data: string
+    }
+
 export type NormalizedContentPart =
   | {
       type: 'text'
       text: string
+    }
+  | {
+      type: 'image'
+      source: NormalizedImageSource
     }
   | {
       type: 'tool-call'
@@ -68,6 +83,12 @@ export type NormalizedMessage = {
   parts: NormalizedContentPart[]
 }
 
+export type NormalizationWarning = {
+  path: string
+  reason: string
+  action: 'ignored'
+}
+
 export type NormalizedRequest = {
   mode: GatewayMode
   contract: InboundContract
@@ -84,6 +105,7 @@ export type NormalizedRequest = {
   reasoning?: OpenAIReasoningConfig
   streamIncludeUsage?: boolean
   toolNameAliases?: ToolNameAliases
+  warnings: NormalizationWarning[]
   requestId: string
 }
 
@@ -171,6 +193,19 @@ export type OpenAIChatToolCall = {
   }
 }
 
+export type OpenAIChatTextContentPart = {
+  type: 'text'
+  text: string
+}
+
+export type OpenAIChatImageUrlContentPart = {
+  type: 'image_url'
+  image_url: {
+    url: string
+    detail?: 'low' | 'high' | 'auto' | 'original' | (string & {})
+  }
+}
+
 export type OpenAIChatMessage =
   | {
       role: 'system'
@@ -178,7 +213,7 @@ export type OpenAIChatMessage =
     }
   | {
       role: 'user'
-      content: string
+      content: string | Array<OpenAIChatTextContentPart | OpenAIChatImageUrlContentPart>
     }
   | {
       role: 'assistant'
@@ -231,6 +266,13 @@ export type OpenAIResponsesInputText = {
   text: string
 }
 
+export type OpenAIResponsesInputImage = {
+  type: 'input_image'
+  image_url?: string
+  file_id?: string
+  detail?: 'low' | 'high' | 'auto' | 'original' | (string & {})
+}
+
 export type OpenAIResponsesOutputTextInput = {
   type: 'output_text'
   text: string
@@ -239,7 +281,7 @@ export type OpenAIResponsesOutputTextInput = {
 export type OpenAIResponsesMessageInput = {
   type?: 'message'
   role: 'system' | 'developer' | 'user' | 'assistant' | 'tool'
-  content: string | Array<OpenAIResponsesInputText | OpenAIResponsesOutputTextInput>
+  content: string | Array<OpenAIResponsesInputText | OpenAIResponsesInputImage | OpenAIResponsesOutputTextInput>
   phase?: 'commentary' | 'final_answer' | null
 }
 
@@ -325,6 +367,22 @@ export type ClaudeTextBlock = {
   text: string
 }
 
+export type ClaudeImageSource =
+  | {
+      type: 'url'
+      url: string
+    }
+  | {
+      type: 'base64'
+      media_type: string
+      data: string
+    }
+
+export type ClaudeImageBlock = {
+  type: 'image'
+  source: ClaudeImageSource
+}
+
 export type ClaudeToolUseBlock = {
   type: 'tool_use'
   id: string
@@ -339,7 +397,7 @@ export type ClaudeToolResultBlock = {
   is_error?: boolean
 }
 
-export type ClaudeContentBlock = ClaudeTextBlock | ClaudeToolUseBlock | ClaudeToolResultBlock
+export type ClaudeContentBlock = ClaudeTextBlock | ClaudeImageBlock | ClaudeToolUseBlock | ClaudeToolResultBlock
 
 export type ClaudeMessage = {
   role: 'user' | 'assistant'

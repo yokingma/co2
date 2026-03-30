@@ -191,6 +191,21 @@ function logUpstreamRequestBody(
   })
 }
 
+function logNormalizationWarnings(
+  logger: Logger,
+  requestId: string,
+  inboundContract: 'claudeMessages' | 'openAIResponses' | 'openAIChatCompletions',
+  warnings: Array<{ path: string; reason: string; action: 'ignored' }>,
+): void {
+  for (const warning of warnings) {
+    logger.warn('Ignored inbound data during normalization', {
+      requestId,
+      inboundContract,
+      ...warning,
+    })
+  }
+}
+
 function sendOpenAIError(reply: FastifyReply, requestId: string, error: unknown): FastifyReply {
   const gatewayError = toGatewayError(error)
   setCommonHeaders(reply, requestId)
@@ -256,6 +271,7 @@ export function registerRoutes(
           config.routing.skipInboundFields.openAIChatCompletions,
         )
         const normalized = normalizeOpenAIChatRequest(sanitizedBody, config.server.mode, requestId)
+        logNormalizationWarnings(logger, requestId, 'openAIChatCompletions', normalized.warnings)
         const upstreamRequest = mapOpenAIChatToClaudeRequest(config, normalized)
         logUpstreamRequestSummary(logger, 'Claude upstream request summary', requestId, summarizeClaudeUpstreamRequest(upstreamRequest))
         logUpstreamRequestBody(logger, 'Claude upstream request body', requestId, 'anthropic', '/v1/messages', upstreamRequest as Record<string, unknown>)
@@ -298,6 +314,7 @@ export function registerRoutes(
           config.routing.skipInboundFields.openAIResponses,
         )
         const normalized = normalizeOpenAIResponsesRequest(sanitizedBody, config.server.mode, requestId)
+        logNormalizationWarnings(logger, requestId, 'openAIResponses', normalized.warnings)
         const upstreamRequest = mapOpenAIResponsesToClaudeRequest(config, normalized)
         logUpstreamRequestSummary(logger, 'Claude upstream request summary', requestId, summarizeClaudeUpstreamRequest(upstreamRequest))
         logUpstreamRequestBody(logger, 'Claude upstream request body', requestId, 'anthropic', '/v1/messages', upstreamRequest as Record<string, unknown>)
@@ -332,6 +349,7 @@ export function registerRoutes(
           config.routing.skipInboundFields.claudeMessages,
         )
         const normalized = normalizeClaudeMessagesRequest(sanitizedBody, config.server.mode, requestId)
+        logNormalizationWarnings(logger, requestId, 'claudeMessages', normalized.warnings)
         const upstreamRequest = mapClaudeMessagesToOpenAIResponsesRequest(config, normalized)
         logUpstreamRequestSummary(logger, 'OpenAI upstream request summary', requestId, summarizeOpenAIResponsesRequest(upstreamRequest))
         logUpstreamRequestBody(logger, 'OpenAI upstream request body', requestId, 'openai', '/v1/responses', upstreamRequest as Record<string, unknown>)

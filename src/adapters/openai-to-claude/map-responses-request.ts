@@ -1,8 +1,8 @@
 import { openAIResponsesSchema } from '../../schemas/openai/responses-schema.js'
-import { buildAnthropicMessagesRequest, createTextPart } from '../shared.js'
-import type { NormalizedMessage, NormalizedRequest, RuntimeConfig } from '../../shared/types.js'
+import { buildAnthropicMessagesRequest, createNormalizationWarning, createTextPart, parseOpenAIImageUrl } from '../shared.js'
+import type { NormalizationWarning, NormalizedMessage, NormalizedRequest, RuntimeConfig } from '../../shared/types.js'
 import type { ToolChoice } from '../../shared/contracts.js'
-import { createUnsupportedParameterError, createUnsupportedToolError } from '../../shared/errors.js'
+import { createUnsupportedParameterError, createUnsupportedToolError, createValidationError } from '../../shared/errors.js'
 import { createAnthropicToolNameAliases } from './tool-name-aliasing.js'
 
 function normalizeToolChoice(toolChoice: string | { type: 'function'; name: string } | undefined): ToolChoice | undefined {
@@ -17,12 +17,26 @@ function normalizeToolChoice(toolChoice: string | { type: 'function'; name: stri
   return { name: toolChoice.name }
 }
 
-function normalizeInputItems(input: string | ReturnType<typeof openAIResponsesSchema.parse>['input']): NormalizedMessage[] {
+function ensureMessageHasParts(parts: NormalizedMessage['parts'], path: string): void {
+  if (parts.length === 0) {
+    throw createValidationError('Message must contain at least one supported content part', path)
+  }
+}
+
+function normalizeInputItems(
+  input: string | ReturnType<typeof openAIResponsesSchema.parse>['input'],
+): { messages: NormalizedMessage[]; warnings: NormalizationWarning[] } {
   if (typeof input === 'string') {
-    return [{ role: 'user', parts: [createTextPart(input)] }]
+    return {
+      messages: [{ role: 'user', parts: [createTextPart(input)] }],
+      warnings: [],
+    }
   }
 
-  return input.map((item) => {
+  const messages: NormalizedMessage[] = []
+  const warnings: NormalizationWarning[] = []
+
+  for (const [itemIndex, item] of input.entries()) {
     if ('role' in item) {
       const normalizedRole: NormalizedMessage['role'] =
         item.role === 'tool'
@@ -34,22 +48,69 @@ function normalizeInputItems(input: string | ReturnType<typeof openAIResponsesSc
               : 'user'
 
       if (typeof item.content === 'string') {
-        return {
+        messages.push({
           role: normalizedRole,
           parts: [createTextPart(item.content)],
-        }
+        })
+        continue
       }
 
       const contentParts = Array.isArray(item.content) ? item.content : []
+      const parts: NormalizedMessage['parts'] = []
 
-      return {
-        role: normalizedRole,
-        parts: contentParts.flatMap((part: unknown) => isRecord(part) && typeof part.text === 'string' ? [createTextPart(part.text)] : []),
+      for (const [partIndex, part] of contentParts.entries()) {
+        if (!isRecord(part)) {
+          continue
+        }
+
+        const path = `input[${itemIndex}].content[${partIndex}]`
+
+        if (typeof part.text === 'string') {
+          parts.push(createTextPart(part.text))
+          continue
+        }
+
+        if (part.type === 'input_image') {
+          if (typeof part.file_id === 'string') {
+            throw createUnsupportedParameterError(
+              'input_image.file_id is not supported in V1; use image_url or data:image/...;base64,... instead',
+              `${path}.file_id`,
+            )
+          }
+
+          if (part.detail !== undefined) {
+            warnings.push(createNormalizationWarning(`${path}.detail`, 'Image detail is not supported in V1 and was ignored'))
+          }
+
+          if (typeof part.image_url !== 'string') {
+            throw createValidationError('input_image must include image_url', `${path}.image_url`)
+          }
+
+          if (normalizedRole !== 'user') {
+            warnings.push(createNormalizationWarning(path, 'Image content is only supported on user messages'))
+            continue
+          }
+
+          const parsedImage = parseOpenAIImageUrl(part.image_url)
+          if (parsedImage.part) {
+            parts.push(parsedImage.part)
+            continue
+          }
+
+          warnings.push(createNormalizationWarning(path, parsedImage.reason ?? 'Unsupported image input'))
+        }
       }
+
+      ensureMessageHasParts(parts, `input[${itemIndex}].content`)
+      messages.push({
+        role: normalizedRole,
+        parts,
+      })
+      continue
     }
 
     if (item.type === 'function_call') {
-      return {
+      messages.push({
         role: 'assistant',
         parts: [
           {
@@ -59,10 +120,11 @@ function normalizeInputItems(input: string | ReturnType<typeof openAIResponsesSc
             argumentsJson: item.arguments,
           },
         ],
-      }
+      })
+      continue
     }
 
-    return {
+    messages.push({
       role: 'user',
       parts: [
         {
@@ -71,8 +133,13 @@ function normalizeInputItems(input: string | ReturnType<typeof openAIResponsesSc
           output: item.output,
         },
       ],
-    }
-  })
+    })
+  }
+
+  return {
+    messages,
+    warnings,
+  }
 }
 
 function coalesceAnthropicTurns(messages: NormalizedMessage[]): NormalizedMessage[] {
@@ -133,7 +200,8 @@ function validateCompatibleOpenAIResponsesRequest(body: unknown): void {
 export function normalizeOpenAIResponsesRequest(body: unknown, mode: RuntimeConfig['server']['mode'], requestId: string): NormalizedRequest {
   validateCompatibleOpenAIResponsesRequest(body)
   const parsed = openAIResponsesSchema.parse(body)
-  const messages = coalesceAnthropicTurns(normalizeInputItems(parsed.input))
+  const normalizedInput = normalizeInputItems(parsed.input)
+  const messages = coalesceAnthropicTurns(normalizedInput.messages)
   const normalizedTools = (parsed.tools ?? []).map((tool) => ({
     name: tool.name,
     description: tool.description,
@@ -159,6 +227,7 @@ export function normalizeOpenAIResponsesRequest(body: unknown, mode: RuntimeConf
       summary: parsed.reasoning.summary ?? parsed.reasoning.generate_summary,
     } : undefined,
     toolNameAliases,
+    warnings: normalizedInput.warnings,
     requestId,
   }
 }

@@ -1,6 +1,14 @@
 import { claudeMessagesSchema, claudeMessagesTopLevelKeys } from '../../schemas/claude/messages-schema.js'
-import { buildOpenAIResponsesRequest, createTextPart, mapClaudeThinkingAndOutputConfigToOpenAIReasoning, stringifyToolInput } from '../shared.js'
-import type { NormalizedContentPart, NormalizedMessage, NormalizedRequest, RuntimeConfig } from '../../shared/types.js'
+import {
+  buildOpenAIResponsesRequest,
+  createImagePart,
+  createNormalizationWarning,
+  createTextPart,
+  isHttpUrl,
+  mapClaudeThinkingAndOutputConfigToOpenAIReasoning,
+  stringifyToolInput,
+} from '../shared.js'
+import type { NormalizationWarning, NormalizedContentPart, NormalizedMessage, NormalizedRequest, RuntimeConfig } from '../../shared/types.js'
 import type { ToolChoice } from '../../shared/contracts.js'
 import { createUnsupportedParameterError, createUnsupportedToolError, createValidationError } from '../../shared/errors.js'
 
@@ -35,36 +43,94 @@ function normalizeToolChoice(toolChoice: ReturnType<typeof claudeMessagesSchema.
   return { name: toolChoice.name }
 }
 
-function normalizeBlocks(role: 'user' | 'assistant', content: string | ReturnType<typeof claudeMessagesSchema.parse>['messages'][number]['content']): NormalizedContentPart[] {
+function ensureMessageHasParts(parts: NormalizedMessage['parts'], path: string): void {
+  if (parts.length === 0) {
+    throw createValidationError('Message must contain at least one supported content part', path)
+  }
+}
+
+function normalizeBlocks(
+  role: 'user' | 'assistant',
+  content: string | ReturnType<typeof claudeMessagesSchema.parse>['messages'][number]['content'],
+  messageIndex: number,
+): { parts: NormalizedContentPart[]; warnings: NormalizationWarning[] } {
   if (typeof content === 'string') {
-    return [createTextPart(content)]
+    return {
+      parts: [createTextPart(content)],
+      warnings: [],
+    }
   }
 
-  return content.flatMap((block): NormalizedContentPart[] => {
+  const parts: NormalizedContentPart[] = []
+  const warnings: NormalizationWarning[] = []
+
+  for (const [blockIndex, block] of content.entries()) {
+    const path = `messages[${messageIndex}].content[${blockIndex}]`
+
     if (block.type === 'text') {
-      return [createTextPart(block.text)]
+      parts.push(createTextPart(block.text))
+      continue
+    }
+
+    if (block.type === 'image') {
+      if (role !== 'user') {
+        warnings.push(createNormalizationWarning(path, 'Image content is only supported on user messages'))
+        continue
+      }
+
+      if (block.source.type === 'url') {
+        if (!isHttpUrl(block.source.url)) {
+          warnings.push(createNormalizationWarning(path, 'Unsupported image URL format; expected http(s) URL'))
+          continue
+        }
+
+        parts.push(createImagePart({
+          type: 'url',
+          url: block.source.url,
+        }))
+        continue
+      }
+
+      if (!block.source.media_type.startsWith('image/')) {
+        warnings.push(createNormalizationWarning(path, 'Unsupported image media_type; expected image/*'))
+        continue
+      }
+
+      parts.push(createImagePart({
+        type: 'base64',
+        mediaType: block.source.media_type,
+        data: block.source.data,
+      }))
+      continue
     }
 
     if (block.type === 'tool_use') {
-      return [{
+      parts.push({
         type: 'tool-call',
         id: block.id,
         name: block.name,
         argumentsJson: stringifyToolInput(block.input),
-      }]
+      })
+      continue
     }
 
-    return [{
+    parts.push({
       type: 'tool-result',
       toolCallId: block.tool_use_id,
       output: typeof block.content === 'string' ? block.content : block.content.map((part) => part.text).join(''),
       isError: block.is_error,
-    }]
-  })
+    })
+  }
+
+  return {
+    parts,
+    warnings,
+  }
 }
 
-function normalizeMessages(parsed: ReturnType<typeof claudeMessagesSchema.parse>): NormalizedMessage[] {
+function normalizeMessages(parsed: ReturnType<typeof claudeMessagesSchema.parse>): { messages: NormalizedMessage[]; warnings: NormalizationWarning[] } {
   const messages: NormalizedMessage[] = []
+  const warnings: NormalizationWarning[] = []
 
   if (parsed.system) {
     messages.push({
@@ -73,14 +139,20 @@ function normalizeMessages(parsed: ReturnType<typeof claudeMessagesSchema.parse>
     })
   }
 
-  for (const message of parsed.messages) {
+  for (const [messageIndex, message] of parsed.messages.entries()) {
+    const normalizedBlocks = normalizeBlocks(message.role, message.content, messageIndex)
+    ensureMessageHasParts(normalizedBlocks.parts, `messages[${messageIndex}].content`)
     messages.push({
       role: message.role,
-      parts: normalizeBlocks(message.role, message.content),
+      parts: normalizedBlocks.parts,
     })
+    warnings.push(...normalizedBlocks.warnings)
   }
 
-  return messages
+  return {
+    messages,
+    warnings,
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -158,6 +230,7 @@ function validateCompatibleClaudeMessagesRequest(body: unknown): void {
 export function normalizeClaudeMessagesRequest(body: unknown, mode: RuntimeConfig['server']['mode'], requestId: string): NormalizedRequest {
   validateCompatibleClaudeMessagesRequest(body)
   const parsed = claudeMessagesSchema.parse(body)
+  const normalizedMessages = normalizeMessages(parsed)
   const normalizedTools = (parsed.tools ?? []).map((tool) => ({
     name: tool.name,
     description: tool.description,
@@ -169,7 +242,7 @@ export function normalizeClaudeMessagesRequest(body: unknown, mode: RuntimeConfi
     contract: 'messages',
     transport: parsed.stream ? 'sse' : 'json',
     model: parsed.model,
-    messages: normalizeMessages(parsed),
+    messages: normalizedMessages.messages,
     tools: normalizedTools,
     toolChoice: normalizeToolChoice(parsed.tool_choice) ?? (normalizedTools.length > 0 ? 'auto' : undefined),
     maxOutputTokens: parsed.max_tokens,
@@ -184,6 +257,7 @@ export function normalizeClaudeMessagesRequest(body: unknown, mode: RuntimeConfi
         : undefined,
       parsed.output_config,
     ),
+    warnings: normalizedMessages.warnings,
     requestId,
   }
 }

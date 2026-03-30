@@ -1,8 +1,8 @@
 import { openAIChatCompletionsSchema } from '../../schemas/openai/chat-completions-schema.js'
-import { buildAnthropicMessagesRequest, createTextPart, normalizeStopSequences } from '../shared.js'
-import type { NormalizedMessage, NormalizedRequest, RuntimeConfig } from '../../shared/types.js'
+import { buildAnthropicMessagesRequest, createNormalizationWarning, createTextPart, normalizeStopSequences, parseOpenAIImageUrl } from '../shared.js'
+import type { NormalizationWarning, NormalizedMessage, NormalizedRequest, RuntimeConfig } from '../../shared/types.js'
 import type { ToolChoice } from '../../shared/contracts.js'
-import { createUnsupportedParameterError, createUnsupportedToolError } from '../../shared/errors.js'
+import { createUnsupportedParameterError, createUnsupportedToolError, createValidationError } from '../../shared/errors.js'
 import { createAnthropicToolNameAliases } from './tool-name-aliasing.js'
 
 function normalizeToolChoice(toolChoice: string | { type: 'function'; function: { name: string } } | undefined): ToolChoice | undefined {
@@ -45,14 +45,6 @@ function validateCompatibleOpenAIChatRequest(body: unknown): void {
     )
   }
 
-  if (Array.isArray(body.modalities) && body.modalities.some((modality) => modality !== 'text')) {
-    throw createUnsupportedParameterError('Only text output modalities are supported in V1', 'modalities')
-  }
-
-  if ('audio' in body && body.audio !== undefined) {
-    throw createUnsupportedParameterError('Audio output is not supported in V1', 'audio')
-  }
-
   const tools = Array.isArray(body.tools) ? body.tools : []
   for (const tool of tools) {
     if (isRecord(tool) && tool.type !== 'function') {
@@ -61,13 +53,88 @@ function validateCompatibleOpenAIChatRequest(body: unknown): void {
   }
 }
 
-function normalizeMessages(messages: ReturnType<typeof openAIChatCompletionsSchema.parse>['messages']): NormalizedMessage[] {
-  return messages.map((message) => {
-    if (message.role === 'system' || message.role === 'user') {
-      return {
-        role: message.role,
+function sanitizeCompatibleOpenAIChatRequest(body: unknown): { body: unknown; warnings: NormalizationWarning[] } {
+  if (!isRecord(body)) {
+    return { body, warnings: [] }
+  }
+
+  const warnings: NormalizationWarning[] = []
+  const sanitizedBody: Record<string, unknown> = { ...body }
+
+  if (Array.isArray(body.modalities) && body.modalities.some((modality) => modality !== 'text')) {
+    delete sanitizedBody.modalities
+    warnings.push(createNormalizationWarning('modalities', 'Only text output modalities are supported in V1'))
+  }
+
+  if ('audio' in body && body.audio !== undefined) {
+    delete sanitizedBody.audio
+    warnings.push(createNormalizationWarning('audio', 'Audio output is not supported in V1'))
+  }
+
+  return {
+    body: sanitizedBody,
+    warnings,
+  }
+}
+
+function ensureMessageHasParts(parts: NormalizedMessage['parts'], path: string): void {
+  if (parts.length === 0) {
+    throw createValidationError('Message must contain at least one supported content part', path)
+  }
+}
+
+function normalizeMessages(
+  messages: ReturnType<typeof openAIChatCompletionsSchema.parse>['messages'],
+): { messages: NormalizedMessage[]; warnings: NormalizationWarning[] } {
+  const normalizedMessages: NormalizedMessage[] = []
+  const warnings: NormalizationWarning[] = []
+
+  for (const [messageIndex, message] of messages.entries()) {
+    if (message.role === 'system') {
+      normalizedMessages.push({
+        role: 'system',
         parts: [createTextPart(message.content)],
+      })
+      continue
+    }
+
+    if (message.role === 'user') {
+      if (typeof message.content === 'string') {
+        normalizedMessages.push({
+          role: 'user',
+          parts: [createTextPart(message.content)],
+        })
+        continue
       }
+
+      const parts: NormalizedMessage['parts'] = []
+      for (const [partIndex, part] of message.content.entries()) {
+        const path = `messages[${messageIndex}].content[${partIndex}]`
+
+        if (part.type === 'text') {
+          parts.push(createTextPart(part.text))
+          continue
+        }
+
+        if (part.image_url.detail !== undefined) {
+          warnings.push(createNormalizationWarning(`${path}.image_url.detail`, 'Image detail is not supported in V1 and was ignored'))
+        }
+
+        const parsedImage = parseOpenAIImageUrl(part.image_url.url)
+        if (parsedImage.part) {
+          parts.push(parsedImage.part)
+          continue
+        }
+
+        warnings.push(createNormalizationWarning(path, parsedImage.reason ?? 'Unsupported image input'))
+      }
+
+      ensureMessageHasParts(parts, `messages[${messageIndex}].content`)
+      normalizedMessages.push({
+        role: 'user',
+        parts,
+      })
+      continue
     }
 
     if (message.role === 'assistant') {
@@ -83,13 +150,14 @@ function normalizeMessages(messages: ReturnType<typeof openAIChatCompletionsSche
           argumentsJson: toolCall.function.arguments,
         })
       }
-      return {
+      normalizedMessages.push({
         role: 'assistant',
         parts,
-      }
+      })
+      continue
     }
 
-    return {
+    normalizedMessages.push({
       role: 'user',
       parts: [
         {
@@ -98,14 +166,20 @@ function normalizeMessages(messages: ReturnType<typeof openAIChatCompletionsSche
           output: message.content,
         },
       ],
-    }
-  })
+    })
+  }
+
+  return {
+    messages: normalizedMessages,
+    warnings,
+  }
 }
 
 export function normalizeOpenAIChatRequest(body: unknown, mode: RuntimeConfig['server']['mode'], requestId: string): NormalizedRequest {
-  validateCompatibleOpenAIChatRequest(body)
-  const parsed = openAIChatCompletionsSchema.parse(body)
-  const messages = normalizeMessages(parsed.messages)
+  const sanitizedRequest = sanitizeCompatibleOpenAIChatRequest(body)
+  validateCompatibleOpenAIChatRequest(sanitizedRequest.body)
+  const parsed = openAIChatCompletionsSchema.parse(sanitizedRequest.body)
+  const normalizedMessages = normalizeMessages(parsed.messages)
   const normalizedTools = (parsed.tools ?? []).map((tool) => ({
     name: tool.function.name,
     description: tool.function.description,
@@ -121,14 +195,14 @@ export function normalizeOpenAIChatRequest(body: unknown, mode: RuntimeConfig['s
     normalizeToolChoice(parsed.tool_choice)
     ?? normalizeLegacyFunctionCall(parsed.function_call)
     ?? (allTools.length > 0 ? 'auto' : undefined)
-  const toolNameAliases = createAnthropicToolNameAliases(allTools, messages, toolChoice)
+  const toolNameAliases = createAnthropicToolNameAliases(allTools, normalizedMessages.messages, toolChoice)
 
   return {
     mode,
     contract: 'chat-completions',
     transport: parsed.stream ? 'sse' : 'json',
     model: parsed.model,
-    messages,
+    messages: normalizedMessages.messages,
     tools: allTools,
     toolChoice,
     maxOutputTokens: parsed.max_completion_tokens ?? parsed.max_tokens,
@@ -138,6 +212,7 @@ export function normalizeOpenAIChatRequest(body: unknown, mode: RuntimeConfig['s
     reasoning: parsed.reasoning_effort ? { effort: parsed.reasoning_effort } : undefined,
     streamIncludeUsage: parsed.stream_options?.include_usage,
     toolNameAliases,
+    warnings: [...sanitizedRequest.warnings, ...normalizedMessages.warnings],
     requestId,
   }
 }

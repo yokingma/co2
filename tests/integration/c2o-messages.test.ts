@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createServer } from '../../src/server/create-server.js'
-import { createClaudeClient, createOpenAIClient, createRuntimeConfig, createSilentLogger } from '../helpers.js'
+import { createCapturingLogger, createClaudeClient, createOpenAIClient, createRuntimeConfig, createSilentLogger } from '../helpers.js'
 
 describe('c2o messages', () => {
   it('maps Claude text request to OpenAI responses upstream and back', async () => {
@@ -81,6 +81,113 @@ describe('c2o messages', () => {
       inference_geo: null,
       iterations: null,
       speed: null,
+    })
+    await server.close()
+  })
+
+  it('maps Claude image URL and base64 blocks to OpenAI input_image content', async () => {
+    const createResponse = vi.fn(async (request) => ({
+      id: 'resp_message_image_input',
+      object: 'response',
+      status: 'completed',
+      model: request.model,
+      output: [{
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: 'image received' }],
+      }],
+      usage: { input_tokens: 8, output_tokens: 4, total_tokens: 12 },
+    }))
+
+    const server = createServer(createRuntimeConfig('claude-to-openai'), {
+      logger: createSilentLogger(),
+      claudeClient: createClaudeClient({}),
+      openAIClient: createOpenAIClient({ createResponse }),
+    })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/messages',
+      payload: {
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 128,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'text', text: 'describe this image' },
+            { type: 'image', source: { type: 'url', url: 'https://example.com/a.png' } },
+            { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'QUFBQQ==' } },
+          ],
+        }],
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(createResponse).toHaveBeenCalled()
+    expect(createResponse.mock.calls[0][0].input).toEqual([
+      {
+        role: 'user',
+        content: [
+          { type: 'input_text', text: 'describe this image' },
+          { type: 'input_image', image_url: 'https://example.com/a.png' },
+          { type: 'input_image', image_url: 'data:image/png;base64,QUFBQQ==' },
+        ],
+      },
+    ])
+    await server.close()
+  })
+
+  it('ignores assistant image history blocks with a warning when assistant text remains', async () => {
+    const createResponse = vi.fn(async (request) => ({
+      id: 'resp_message_ignored_assistant_image_history',
+      object: 'response',
+      status: 'completed',
+      model: request.model,
+      output: [{
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: 'history accepted' }],
+      }],
+      usage: { input_tokens: 8, output_tokens: 4, total_tokens: 12 },
+    }))
+    const { entries, logger } = createCapturingLogger()
+
+    const server = createServer(createRuntimeConfig('claude-to-openai'), {
+      logger,
+      claudeClient: createClaudeClient({}),
+      openAIClient: createOpenAIClient({ createResponse }),
+    })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/messages',
+      payload: {
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 128,
+        messages: [{
+          role: 'assistant',
+          content: [
+            { type: 'image', source: { type: 'url', url: 'https://example.com/history.png' } },
+            { type: 'text', text: '我先看图。' },
+          ],
+        }],
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(createResponse).toHaveBeenCalled()
+    expect(createResponse.mock.calls[0][0].input).toEqual([
+      {
+        role: 'assistant',
+        content: [{ type: 'output_text', text: '我先看图。' }],
+      },
+    ])
+
+    const warnEntry = entries.find((entry) => entry.level === 'warn' && entry.message === 'Ignored inbound data during normalization')
+    expect(warnEntry?.data).toMatchObject({
+      inboundContract: 'claudeMessages',
+      path: 'messages[0].content[0]',
+      action: 'ignored',
     })
     await server.close()
   })

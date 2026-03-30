@@ -155,6 +155,93 @@ curl http://127.0.0.1:8000/v1/messages \
   }'
 ```
 
+## Image Input
+
+`co2` currently supports image input translation on all request paths:
+
+- `o2c /v1/responses`
+- `o2c /v1/chat/completions`
+- `c2o /v1/messages`
+
+Supported image sources:
+
+- `https://...` / `http://...`
+- `data:image/...;base64,...`
+
+Not supported in `V1`:
+
+- image output
+- image generation
+- audio output
+- file-id based image inputs
+
+When an image block or multimodal control field cannot be mapped safely, `co2` drops just that field/block, logs a `warn`, and continues only if the message still contains supported content.
+
+### `o2c /v1/responses` with image URL
+
+```bash
+curl http://127.0.0.1:8000/v1/responses \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "gpt-5.4",
+    "input": [
+      {
+        "role": "user",
+        "content": [
+          { "type": "input_text", "text": "Describe this image" },
+          { "type": "input_image", "image_url": "https://example.com/a.png" }
+        ]
+      }
+    ]
+  }'
+```
+
+### `o2c /v1/chat/completions` with base64 image
+
+```bash
+curl http://127.0.0.1:8000/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "gpt-5.4",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          { "type": "text", "text": "Describe this image" },
+          { "type": "image_url", "image_url": { "url": "data:image/png;base64,QUFBQQ==" } }
+        ]
+      }
+    ]
+  }'
+```
+
+### `c2o /v1/messages` with base64 image
+
+```bash
+curl http://127.0.0.1:8000/v1/messages \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "claude-opus-4.6",
+    "max_tokens": 128,
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "image",
+            "source": {
+              "type": "base64",
+              "media_type": "image/png",
+              "data": "QUFBQQ=="
+            }
+          },
+          { "type": "text", "text": "Describe this image" }
+        ]
+      }
+    ]
+  }'
+```
+
 Notes:
 
 - For production, prefer environment variables for API keys; environment variables take precedence over the config file.

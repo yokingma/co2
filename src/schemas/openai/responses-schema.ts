@@ -5,6 +5,15 @@ const inputTextSchema = z.object({
   text: z.string(),
 }).passthrough()
 
+const inputImageSchema = z.object({
+  type: z.literal('input_image'),
+  image_url: z.string().optional(),
+  file_id: z.string().min(1).optional(),
+  detail: z.enum(['low', 'high', 'auto', 'original']).optional(),
+}).passthrough().refine((value) => value.image_url !== undefined || value.file_id !== undefined, {
+  message: 'input_image must include image_url or file_id',
+})
+
 const outputTextSchema = z.object({
   type: z.literal('output_text'),
   text: z.string(),
@@ -13,7 +22,7 @@ const outputTextSchema = z.object({
 const responseMessageSchema = z.object({
   type: z.literal('message').optional(),
   role: z.enum(['system', 'developer', 'user', 'assistant', 'tool']),
-  content: z.union([z.string(), z.array(z.union([inputTextSchema, outputTextSchema])).min(1)]),
+  content: z.union([z.string(), z.array(z.union([inputTextSchema, inputImageSchema, outputTextSchema])).min(1)]),
   phase: z.enum(['commentary', 'final_answer']).nullable().optional(),
 }).passthrough()
 

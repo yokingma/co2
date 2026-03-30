@@ -41,9 +41,25 @@ const systemMessageSchema = z.object({
   content: z.string().min(1),
 }).passthrough()
 
+const userTextContentSchema = z.object({
+  type: z.literal('text'),
+  text: z.string(),
+}).passthrough()
+
+const userImageContentSchema = z.object({
+  type: z.literal('image_url'),
+  image_url: z.object({
+    url: z.string(),
+    detail: z.enum(['low', 'high', 'auto', 'original']).optional(),
+  }).passthrough(),
+}).passthrough()
+
 const userMessageSchema = z.object({
   role: z.literal('user'),
-  content: z.string(),
+  content: z.union([
+    z.string(),
+    z.array(z.union([userTextContentSchema, userImageContentSchema])).min(1),
+  ]),
 }).passthrough()
 
 const assistantMessageSchema = z.object({

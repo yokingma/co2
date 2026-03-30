@@ -1,10 +1,21 @@
 # Changelog
 
+## 2026-03-30
+
+- 收紧 `o2c /v1/responses` 图片输入边界：`input_image.file_id` 现在会在本地显式返回 `unsupported_parameter`，而不是落成模糊的通用 `validation_error`；原因是 `V1` 纯协议代理仅支持可直接转发的 `image_url` 与 `data:image/...;base64,...`，不承担 OpenAI 文件句柄解析职责。
+- 调整图片 `detail` 控制字段策略：`o2c /v1/responses` 与 `o2c /v1/chat/completions` 在遇到 `detail` 时不再静默吞掉，而是记录结构化 `warn` 日志后继续转发可保真的图片输入主语义。
+
 ## 2026-03-28
 
 - 修复 `c2o /v1/messages` 对 Claude Code beta `output_config.effort` 的兼容性：入站 schema 现在额外接受 `none`、`minimal`、`xhigh` 这类 OpenAI 风格 effort 别名，并在标准化阶段分别映射到 OpenAI Responses `reasoning.effort`，避免 `beta=true` 请求因本地校验过严而报 `validation_error`。
 - 补充 `c2o messages` 回归测试：覆盖 `beta=true` 请求里 `output_config.effort = minimal|none|xhigh` 的成功透传与映射，锁定这类 Claude Code 请求不再回退到 400。
 - 调整 CLI `start` 成功后的标准输出：无论 `logLevel` 如何，都会额外输出一行人类可读的启动提示和一行客户端代理 `base URL` 提示；`claude-to-openai` 模式提示 `ANTHROPIC_BASE_URL=http://host:port`，`openai-to-claude` 模式提示 `OPENAI_BASE_URL=http://host:port/v1`，同时保留 `info` 级 JSON 启动日志。
+
+## 2026-03-26
+
+- 为 `o2c /v1/responses`、`o2c /v1/chat/completions` 与 `c2o /v1/messages` 增加图片输入转换能力：当前支持 `URL` 与 `base64` 两种图片来源，并分别映射到 Claude `image` block 与 OpenAI `input_image`。
+- 调整多模态边界策略为“忽略并警示”：无法保真或当前不支持的图片块、`audio`、非文本 `modalities` 不再直接阻断请求，而是在边界层剥离并输出结构化 `warn` 日志；若过滤后整条消息为空，则稳定返回 `validation_error`。
+- 扩展内部 normalized model 与适配器共享 helper：新增统一图片 source 结构、`data:image/...;base64,...` 解析、Claude/OpenAI 图片输入重组逻辑，以及回归测试覆盖三条协议入口上的 URL/base64 图片输入。
 
 ## 2026-03-23
 

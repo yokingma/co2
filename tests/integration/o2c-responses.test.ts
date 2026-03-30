@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createServer } from '../../src/server/create-server.js'
-import { createClaudeClient, createOpenAIClient, createRuntimeConfig, createSilentLogger } from '../helpers.js'
+import { createCapturingLogger, createClaudeClient, createOpenAIClient, createRuntimeConfig, createSilentLogger } from '../helpers.js'
 
 describe('o2c responses', () => {
   it('maps responses request and returns responses envelope', async () => {
@@ -40,6 +40,188 @@ describe('o2c responses', () => {
     expect(createMessage.mock.calls[0][0].system).toContain('be concise')
     expect(response.json().object).toBe('response')
     expect(response.json().output[0].content[0].text).toBe('response text')
+    await server.close()
+  })
+
+  it('maps OpenAI responses image URL input blocks to Anthropic image content', async () => {
+    const createMessage = vi.fn(async (request) => ({
+      id: 'msg_resp_image_url',
+      type: 'message',
+      role: 'assistant',
+      model: request.model,
+      content: [{ type: 'text', text: 'image received' }],
+      stop_reason: 'end_turn',
+      stop_sequence: null,
+      usage: { input_tokens: 12, output_tokens: 6 },
+    }))
+
+    const server = createServer(createRuntimeConfig('openai-to-claude'), {
+      logger: createSilentLogger(),
+      claudeClient: createClaudeClient({ createMessage }),
+      openAIClient: createOpenAIClient({}),
+    })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/responses',
+      payload: {
+        model: 'gpt-4.1',
+        input: [{
+          role: 'user',
+          content: [
+            { type: 'input_text', text: 'describe this image' },
+            { type: 'input_image', image_url: 'https://example.com/a.png' },
+          ],
+        }],
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(createMessage).toHaveBeenCalled()
+    expect(createMessage.mock.calls[0][0].messages).toEqual([
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'describe this image' },
+          { type: 'image', source: { type: 'url', url: 'https://example.com/a.png' } },
+        ],
+      },
+    ])
+    await server.close()
+  })
+
+  it('warns when responses image detail is dropped but still forwards the message', async () => {
+    const createMessage = vi.fn(async (request) => ({
+      id: 'msg_resp_image_detail_warning',
+      type: 'message',
+      role: 'assistant',
+      model: request.model,
+      content: [{ type: 'text', text: 'image received' }],
+      stop_reason: 'end_turn',
+      stop_sequence: null,
+      usage: { input_tokens: 12, output_tokens: 6 },
+    }))
+    const { entries, logger } = createCapturingLogger()
+
+    const server = createServer(createRuntimeConfig('openai-to-claude'), {
+      logger,
+      claudeClient: createClaudeClient({ createMessage }),
+      openAIClient: createOpenAIClient({}),
+    })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/responses',
+      payload: {
+        model: 'gpt-4.1',
+        input: [{
+          role: 'user',
+          content: [
+            { type: 'input_text', text: 'describe this image' },
+            { type: 'input_image', image_url: 'https://example.com/a.png', detail: 'low' },
+          ],
+        }],
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(createMessage).toHaveBeenCalled()
+
+    const warnEntry = entries.find((entry) => entry.level === 'warn' && entry.message === 'Ignored inbound data during normalization')
+    expect(warnEntry?.data).toMatchObject({
+      inboundContract: 'openAIResponses',
+      path: 'input[0].content[1].detail',
+      action: 'ignored',
+    })
+    await server.close()
+  })
+
+  it('ignores invalid responses image input blocks with a warning when text remains', async () => {
+    const createMessage = vi.fn(async (request) => ({
+      id: 'msg_resp_invalid_image_warning',
+      type: 'message',
+      role: 'assistant',
+      model: request.model,
+      content: [{ type: 'text', text: 'text only' }],
+      stop_reason: 'end_turn',
+      stop_sequence: null,
+      usage: { input_tokens: 12, output_tokens: 6 },
+    }))
+    const { entries, logger } = createCapturingLogger()
+
+    const server = createServer(createRuntimeConfig('openai-to-claude'), {
+      logger,
+      claudeClient: createClaudeClient({ createMessage }),
+      openAIClient: createOpenAIClient({}),
+    })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/responses',
+      payload: {
+        model: 'gpt-4.1',
+        input: [{
+          role: 'user',
+          content: [
+            { type: 'input_text', text: 'keep this text' },
+            { type: 'input_image', image_url: 'ftp://example.com/invalid.png' },
+          ],
+        }],
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(createMessage).toHaveBeenCalled()
+    expect(createMessage.mock.calls[0][0].messages).toEqual([
+      { role: 'user', content: 'keep this text' },
+    ])
+
+    const warnEntry = entries.find((entry) => entry.level === 'warn' && entry.message === 'Ignored inbound data during normalization')
+    expect(warnEntry?.data).toMatchObject({
+      inboundContract: 'openAIResponses',
+      path: 'input[0].content[1]',
+      action: 'ignored',
+    })
+    await server.close()
+  })
+
+  it('rejects file_id image inputs with an explicit unsupported_parameter error', async () => {
+    const createMessage = vi.fn(async () => ({
+      id: 'msg_resp_file_id',
+      type: 'message',
+      role: 'assistant',
+      model: 'claude-sonnet-4-20250514',
+      content: [{ type: 'text', text: 'unexpected' }],
+      stop_reason: 'end_turn',
+      stop_sequence: null,
+      usage: { input_tokens: 1, output_tokens: 1 },
+    }))
+
+    const server = createServer(createRuntimeConfig('openai-to-claude'), {
+      logger: createSilentLogger(),
+      claudeClient: createClaudeClient({ createMessage }),
+      openAIClient: createOpenAIClient({}),
+    })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/responses',
+      payload: {
+        model: 'gpt-4.1',
+        input: [{
+          role: 'user',
+          content: [
+            { type: 'input_text', text: 'describe this image' },
+            { type: 'input_image', file_id: 'file_123' },
+          ],
+        }],
+      },
+    })
+
+    expect(response.statusCode).toBe(400)
+    expect(response.json().error.code).toBe('unsupported_parameter')
+    expect(response.json().error.param).toBe('input[0].content[1].file_id')
+    expect(createMessage).not.toHaveBeenCalled()
     await server.close()
   })
 

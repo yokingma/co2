@@ -5,6 +5,23 @@ const textBlockSchema = z.object({
   text: z.string(),
 }).passthrough()
 
+const imageSourceSchema = z.union([
+  z.object({
+    type: z.literal('url'),
+    url: z.string(),
+  }).passthrough(),
+  z.object({
+    type: z.literal('base64'),
+    media_type: z.string().min(1),
+    data: z.string().min(1),
+  }).passthrough(),
+])
+
+const imageBlockSchema = z.object({
+  type: z.literal('image'),
+  source: imageSourceSchema,
+}).passthrough()
+
 const toolUseBlockSchema = z.object({
   type: z.literal('tool_use'),
   id: z.string().min(1),
@@ -19,7 +36,7 @@ const toolResultBlockSchema = z.object({
   is_error: z.boolean().optional(),
 }).passthrough()
 
-const contentBlockSchema = z.union([textBlockSchema, toolUseBlockSchema, toolResultBlockSchema])
+const contentBlockSchema = z.union([textBlockSchema, imageBlockSchema, toolUseBlockSchema, toolResultBlockSchema])
 
 const toolSchema = z.object({
   name: z.string().min(1),

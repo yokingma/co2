@@ -4,4 +4,3 @@ dist
 .worktrees
 co2.local.json
 docs/
-PATTERNS.md
