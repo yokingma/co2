@@ -42,6 +42,7 @@ function createRuntimeConfig(
       defaultClaudeModel: 'claude-opus-4.6',
       claudeOutputEffort: 'high',
       openAIReasoningEffort: 'high',
+      openAIParallelToolCalls: undefined,
       skipInboundFields: {
         claudeMessages: [],
         openAIResponses: [],

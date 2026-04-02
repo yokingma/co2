@@ -381,6 +381,17 @@ function resolveOpenAIReasoning(
   return { effort: config.routing.openAIReasoningEffort }
 }
 
+function resolveOpenAIParallelToolCalls(
+  config: RuntimeConfig,
+  request: NormalizedRequest,
+): boolean | undefined {
+  if (request.tools.length === 0) {
+    return undefined
+  }
+
+  return config.routing.openAIParallelToolCalls
+}
+
 export function normalizedToolsToAnthropicTools(tools: NormalizedToolDefinition[], aliases?: ToolNameAliases): ClaudeToolDefinition[] {
   return tools.map((tool) => ({
     name: toAnthropicToolName(tool.name, aliases),
@@ -565,7 +576,7 @@ export function buildOpenAIResponsesRequest(config: RuntimeConfig, request: Norm
     tools: request.tools.length > 0 ? normalizedToolsToResponsesTools(request.tools) : undefined,
     tool_choice: toResponsesToolChoice(request.toolChoice),
     reasoning: resolveOpenAIReasoning(config, request),
-    parallel_tool_calls: request.tools.length > 0 ? false : undefined,
+    parallel_tool_calls: resolveOpenAIParallelToolCalls(config, request),
     stream: request.transport === 'sse',
     max_output_tokens: request.maxOutputTokens,
     temperature: request.temperature,

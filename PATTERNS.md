@@ -53,7 +53,7 @@
 - 所有响应统一回写 `x-co2-request-id`。
 - 工具参数 JSON 必须严格保真；解析失败直接返回映射错误，禁止静默兜底为空对象。
 - Anthropic 上游请求统一携带配置化 `anthropic-version` 默认头。
-- `c2o` 发往 OpenAI Responses 的工具请求必须显式约束 `parallel_tool_calls: false`，与网关 `V1` 仅支持顺序工具调用的声明保持一致，不能依赖上游默认值。
+- `c2o` 发往 OpenAI Responses 的工具请求是否下发 `parallel_tool_calls`，必须完全由 `routing.openAIParallelToolCalls` 这个全局硬配置决定：未配置时不传，配置为 `true/false` 时按值显式下发；没有工具时始终不传该字段。
 
 ## Documentation Pattern
 

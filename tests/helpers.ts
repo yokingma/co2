@@ -32,6 +32,7 @@ export function createRuntimeConfig(mode: RuntimeConfig['server']['mode']): Runt
       defaultClaudeModel: 'claude-sonnet-4-20250514',
       claudeOutputEffort: undefined,
       openAIReasoningEffort: undefined,
+      openAIParallelToolCalls: undefined,
       skipInboundFields: {
         claudeMessages: [],
         openAIResponses: [],

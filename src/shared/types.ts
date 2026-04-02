@@ -152,6 +152,7 @@ export type RuntimeConfig = {
     defaultClaudeModel?: string
     claudeOutputEffort?: ClaudeOutputEffort
     openAIReasoningEffort?: string
+    openAIParallelToolCalls?: boolean
     skipInboundFields: {
       claudeMessages: string[]
       openAIResponses: string[]

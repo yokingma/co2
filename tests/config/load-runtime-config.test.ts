@@ -103,6 +103,29 @@ describe('loadRuntimeConfig', () => {
     expect(runtimeConfig.routing.openAIReasoningEffort).toBe('high')
   })
 
+  it('loads configurable OpenAI parallel tool calls override', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'co2-parallel-tool-calls-'))
+    const configPath = join(directory, 'co2.config.json')
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        server: {
+          mode: 'claude-to-openai',
+        },
+        routing: {
+          openAIParallelToolCalls: true,
+        },
+      }),
+    )
+
+    process.env.OPENAI_API_KEY = 'env-openai-key'
+    const runtimeConfig = await loadRuntimeConfig({ config: configPath })
+
+    expect(runtimeConfig.routing).toEqual(expect.objectContaining({
+      openAIParallelToolCalls: true,
+    }))
+  })
+
   it('loads configurable Claude output effort', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'co2-claude-effort-'))
     const configPath = join(directory, 'co2.config.json')

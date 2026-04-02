@@ -67,6 +67,7 @@ export const configFileSchema = z.strictObject({
       defaultClaudeModel: z.string().min(1).optional(),
       claudeOutputEffort: claudeOutputEffortSchema.optional(),
       openAIReasoningEffort: z.string().min(1).optional(),
+      openAIParallelToolCalls: z.boolean().optional(),
       skipInboundFields: skipInboundFieldsSchema.optional(),
     })
     .optional(),
@@ -98,6 +99,7 @@ export const runtimeConfigSchema = z.strictObject({
     defaultClaudeModel: z.string().min(1).optional(),
     claudeOutputEffort: claudeOutputEffortSchema.optional(),
     openAIReasoningEffort: z.string().min(1).optional(),
+    openAIParallelToolCalls: z.boolean().optional(),
     skipInboundFields: skipInboundFieldsSchema.default({
       claudeMessages: [],
       openAIResponses: [],

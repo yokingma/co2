@@ -486,7 +486,138 @@ describe('c2o messages', () => {
     expect(response.statusCode).toBe(200)
     expect(createResponse).toHaveBeenCalled()
     expect(createResponse.mock.calls[0][0].tool_choice).toBe('auto')
+    expect((createResponse.mock.calls[0][0] as Record<string, unknown>).parallel_tool_calls).toBeUndefined()
+    await server.close()
+  })
+
+  it('sends configured parallel_tool_calls=true for Claude tool requests', async () => {
+    const createResponse = vi.fn(async (request) => ({
+      id: 'resp_message_parallel_tool_calls_true',
+      object: 'response',
+      status: 'completed',
+      model: request.model,
+      output: [{
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: 'ok' }],
+      }],
+      usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+    }))
+
+    const runtimeConfig = createRuntimeConfig('claude-to-openai') as ReturnType<typeof createRuntimeConfig> & {
+      routing: ReturnType<typeof createRuntimeConfig>['routing'] & {
+        openAIParallelToolCalls?: boolean
+      }
+    }
+    runtimeConfig.routing.openAIParallelToolCalls = true
+
+    const server = createServer(runtimeConfig, {
+      logger: createSilentLogger(),
+      claudeClient: createClaudeClient({}),
+      openAIClient: createOpenAIClient({ createResponse }),
+    })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/messages',
+      payload: {
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 128,
+        tools: [{ name: 'get_weather', input_schema: { type: 'object' } }],
+        messages: [{ role: 'user', content: 'call tool' }],
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(createResponse).toHaveBeenCalled()
+    expect((createResponse.mock.calls[0][0] as Record<string, unknown>).parallel_tool_calls).toBe(true)
+    await server.close()
+  })
+
+  it('sends configured parallel_tool_calls=false for Claude tool requests', async () => {
+    const createResponse = vi.fn(async (request) => ({
+      id: 'resp_message_parallel_tool_calls_false',
+      object: 'response',
+      status: 'completed',
+      model: request.model,
+      output: [{
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: 'ok' }],
+      }],
+      usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+    }))
+
+    const runtimeConfig = createRuntimeConfig('claude-to-openai') as ReturnType<typeof createRuntimeConfig> & {
+      routing: ReturnType<typeof createRuntimeConfig>['routing'] & {
+        openAIParallelToolCalls?: boolean
+      }
+    }
+    runtimeConfig.routing.openAIParallelToolCalls = false
+
+    const server = createServer(runtimeConfig, {
+      logger: createSilentLogger(),
+      claudeClient: createClaudeClient({}),
+      openAIClient: createOpenAIClient({ createResponse }),
+    })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/messages',
+      payload: {
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 128,
+        tools: [{ name: 'get_weather', input_schema: { type: 'object' } }],
+        messages: [{ role: 'user', content: 'call tool' }],
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(createResponse).toHaveBeenCalled()
     expect((createResponse.mock.calls[0][0] as Record<string, unknown>).parallel_tool_calls).toBe(false)
+    await server.close()
+  })
+
+  it('does not send parallel_tool_calls without tools even when configured', async () => {
+    const createResponse = vi.fn(async (request) => ({
+      id: 'resp_message_parallel_tool_calls_without_tools',
+      object: 'response',
+      status: 'completed',
+      model: request.model,
+      output: [{
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: 'ok' }],
+      }],
+      usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+    }))
+
+    const runtimeConfig = createRuntimeConfig('claude-to-openai') as ReturnType<typeof createRuntimeConfig> & {
+      routing: ReturnType<typeof createRuntimeConfig>['routing'] & {
+        openAIParallelToolCalls?: boolean
+      }
+    }
+    runtimeConfig.routing.openAIParallelToolCalls = true
+
+    const server = createServer(runtimeConfig, {
+      logger: createSilentLogger(),
+      claudeClient: createClaudeClient({}),
+      openAIClient: createOpenAIClient({ createResponse }),
+    })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/messages',
+      payload: {
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 128,
+        messages: [{ role: 'user', content: 'hello' }],
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(createResponse).toHaveBeenCalled()
+    expect((createResponse.mock.calls[0][0] as Record<string, unknown>).parallel_tool_calls).toBeUndefined()
     await server.close()
   })
 
