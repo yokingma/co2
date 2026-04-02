@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-04-02
+
+- 发布版本号从 `0.3.0` 提升到 `0.3.1`，并同步更新 README 示例与仓库内示例配置里的 `user-agent` 版本标识。
+- 为 `c2o /v1/messages` 新增 `routing.openAIParallelToolCalls` 全局硬配置：未配置时不再向 OpenAI Responses 发送 `parallel_tool_calls`，配置为 `true/false` 时仅在请求包含工具时按值显式下发。
+- 调整 `c2o messages` 回归测试：覆盖默认不传、显式 `true`、显式 `false`，以及“已配置但无工具时仍不传”这四种并发工具调用场景。
+
 ## 2026-03-30
 
 - 收紧 `o2c /v1/responses` 图片输入边界：`input_image.file_id` 现在会在本地显式返回 `unsupported_parameter`，而不是落成模糊的通用 `validation_error`；原因是 `V1` 纯协议代理仅支持可直接转发的 `image_url` 与 `data:image/...;base64,...`，不承担 OpenAI 文件句柄解析职责。
