@@ -4,3 +4,8 @@ dist
 .worktrees
 co2.local.json
 docs/
+.DS_Store
+.idea/
+.vscode/
+*.log
+*.lock
