@@ -1,4 +1,16 @@
-import type { ClaudeMessagesRequest, ClaudeMessagesResponse, ClaudeStreamEvent, Logger, OpenAIResponsesRequest, OpenAIResponsesResponse, OpenAIResponsesStreamEvent, RuntimeConfig } from '../src/shared/types.js'
+import type {
+  ClaudeMessagesRequest,
+  ClaudeMessagesResponse,
+  ClaudeStreamEvent,
+  Logger,
+  OpenAIChatCompletionChunk,
+  OpenAIChatCompletionResponse,
+  OpenAIChatRequest,
+  OpenAIResponsesRequest,
+  OpenAIResponsesResponse,
+  OpenAIResponsesStreamEvent,
+  RuntimeConfig,
+} from '../src/shared/types.js'
 import type { ClaudeUpstreamClient } from '../src/upstream/claude-client.js'
 import type { OpenAIUpstreamClient } from '../src/upstream/openai-client.js'
 
@@ -32,6 +44,7 @@ export function createRuntimeConfig(mode: RuntimeConfig['server']['mode']): Runt
       defaultClaudeModel: 'claude-sonnet-4-20250514',
       claudeOutputEffort: undefined,
       openAIReasoningEffort: undefined,
+      openAIUpstreamApi: 'responses',
       openAIParallelToolCalls: undefined,
       skipInboundFields: {
         claudeMessages: [],
@@ -99,6 +112,8 @@ export function createClaudeClient(options: {
 export function createOpenAIClient(options: {
   createResponse?: (request: OpenAIResponsesRequest) => Promise<OpenAIResponsesResponse>
   streamResponse?: (request: OpenAIResponsesRequest) => Promise<AsyncIterable<OpenAIResponsesStreamEvent>>
+  createChatCompletion?: (request: OpenAIChatRequest) => Promise<OpenAIChatCompletionResponse>
+  streamChatCompletion?: (request: OpenAIChatRequest) => Promise<AsyncIterable<OpenAIChatCompletionChunk>>
 }): OpenAIUpstreamClient {
   return {
     createResponse: options.createResponse ?? (async () => ({
@@ -114,6 +129,21 @@ export function createOpenAIClient(options: {
       usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
     })),
     streamResponse: options.streamResponse ?? (async () => emptyAsyncIterable<OpenAIResponsesStreamEvent>()),
+    createChatCompletion: options.createChatCompletion ?? (async () => ({
+      id: 'chatcmpl_default',
+      object: 'chat.completion',
+      model: 'gpt-4.1',
+      choices: [{
+        index: 0,
+        message: {
+          role: 'assistant',
+          content: 'ok',
+        },
+        finish_reason: 'stop',
+      }],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+    })),
+    streamChatCompletion: options.streamChatCompletion ?? (async () => emptyAsyncIterable<OpenAIChatCompletionChunk>()),
   }
 }
 

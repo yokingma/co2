@@ -615,4 +615,82 @@ describe('stream bridge', () => {
     expect(response.body).toContain('message_stop')
     await server.close()
   })
+
+  it('maps the final chat completion usage chunk to Claude events without forcing stream_options when configured', async () => {
+    const runtimeConfig = createRuntimeConfig('claude-to-openai') as ReturnType<typeof createRuntimeConfig> & {
+      routing: ReturnType<typeof createRuntimeConfig>['routing'] & {
+        openAIUpstreamApi?: 'responses' | 'chat-completions'
+      }
+    }
+    runtimeConfig.routing.openAIUpstreamApi = 'chat-completions'
+    const streamChatCompletion = vi.fn(async () => fromArray([
+      {
+        id: 'chatcmpl_stream',
+        object: 'chat.completion.chunk',
+        model: 'gpt-4.1',
+        choices: [{
+          index: 0,
+          delta: {
+            role: 'assistant',
+            content: 'hello',
+          },
+          finish_reason: null,
+        }],
+      },
+      {
+        id: 'chatcmpl_stream',
+        object: 'chat.completion.chunk',
+        model: 'gpt-4.1',
+        choices: [{
+          index: 0,
+          delta: {},
+          finish_reason: 'stop',
+        }],
+      },
+      {
+        id: 'chatcmpl_stream',
+        object: 'chat.completion.chunk',
+        model: 'gpt-4.1',
+        choices: [],
+        usage: {
+          prompt_tokens: 11,
+          completion_tokens: 7,
+          total_tokens: 18,
+        },
+      },
+    ]))
+
+    const server = createServer(runtimeConfig, {
+      logger: createSilentLogger(),
+      claudeClient: createClaudeClient({}),
+      openAIClient: createOpenAIClient({
+        streamChatCompletion,
+      }),
+    })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/messages',
+      payload: {
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 128,
+        messages: [{ role: 'user', content: 'hello' }],
+        stream: true,
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(streamChatCompletion).toHaveBeenCalledWith(expect.objectContaining({
+      model: 'gpt-4.1',
+      stream: true,
+    }))
+    expect((streamChatCompletion.mock.calls[0]?.[0] as Record<string, unknown>).stream_options).toBeUndefined()
+    expect(response.body).toContain('message_start')
+    expect(response.body).toContain('content_block_start')
+    expect(response.body).toContain('"text":"hello"')
+    expect(response.body).toContain('"stop_reason":"end_turn"')
+    expect(response.body).toContain('"usage":{"input_tokens":11,"output_tokens":7')
+    expect(response.body).toContain('message_stop')
+    await server.close()
+  })
 })

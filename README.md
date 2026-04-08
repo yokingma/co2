@@ -35,7 +35,7 @@ npx @fastagent/co2 start --config ./co2.config.json
       "apiKey": "OPENAI_API_KEY_PLACEHOLDER",
       "baseUrl": "https://api.openai.com/v1",
       "defaultHeaders": {
-        "user-agent": "co2-cli/0.3.1"
+        "user-agent": "co2-cli/0.3.2"
       }
     },
     "anthropic": {
@@ -43,7 +43,7 @@ npx @fastagent/co2 start --config ./co2.config.json
       "baseUrl": "https://api.anthropic.com",
       "version": "2023-06-01",
       "defaultHeaders": {
-        "user-agent": "co2-cli/0.3.1"
+        "user-agent": "co2-cli/0.3.2"
       }
     }
   },
@@ -51,6 +51,7 @@ npx @fastagent/co2 start --config ./co2.config.json
     "defaultOpenAIModel": "gpt-5.4",
     "defaultClaudeModel": "claude-opus-4.6",
     "openAIReasoningEffort": "high",
+    "openAIUpstreamApi": "responses",
     "openAIParallelToolCalls": true,
     "claudeOutputEffort": "high",
     "skipInboundFields": {
@@ -71,7 +72,8 @@ Notes:
 - The example shows both `openai` and `anthropic` providers so the full config shape is visible in one place.
 - In `openai-to-claude` / `o2c`, only `providers.anthropic` is used. `providers.openai` can be omitted without affecting startup or request handling.
 - In `claude-to-openai` / `c2o`, only `providers.openai` is used. `providers.anthropic` can be omitted without affecting startup or request handling.
-- `routing.defaultClaudeModel` and `routing.claudeOutputEffort` only affect `o2c`. `routing.defaultOpenAIModel`, `routing.openAIReasoningEffort`, and `routing.openAIParallelToolCalls` only affect `c2o`.
+- `routing.defaultClaudeModel` and `routing.claudeOutputEffort` only affect `o2c`. `routing.defaultOpenAIModel`, `routing.openAIReasoningEffort`, `routing.openAIUpstreamApi`, and `routing.openAIParallelToolCalls` only affect `c2o`.
+- `routing.openAIUpstreamApi` explicitly selects the OpenAI upstream contract for `c2o`: the default is `responses`; if your OpenAI-compatible upstream only exposes `POST /v1/chat/completions`, set it to `chat-completions`. This is the switch you want when routing Claude Code through `c2o` into a chat-completions-only upstream.
 - `routing.openAIParallelToolCalls` is a global hard override for `c2o` tool requests: if omitted, `co2` does not send `parallel_tool_calls`; if set to `true` or `false`, `co2` forwards that exact value to OpenAI only when tools are present.
 - `routing.skipInboundFields` lets you explicitly drop known top-level request fields before validation, so you can keep a local gateway working with newer SDK/client fields without waiting for a new `co2` release.
 

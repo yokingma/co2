@@ -103,6 +103,29 @@ describe('loadRuntimeConfig', () => {
     expect(runtimeConfig.routing.openAIReasoningEffort).toBe('high')
   })
 
+  it('loads configurable OpenAI upstream API and defaults to responses', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'co2-upstream-api-'))
+    const configPath = join(directory, 'co2.config.json')
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        server: {
+          mode: 'claude-to-openai',
+        },
+        routing: {
+          openAIUpstreamApi: 'chat-completions',
+        },
+      }),
+    )
+
+    process.env.OPENAI_API_KEY = 'env-openai-key'
+    const configuredRuntimeConfig = await loadRuntimeConfig({ config: configPath })
+    const defaultRuntimeConfig = await loadRuntimeConfig({ mode: 'c2o' })
+
+    expect(configuredRuntimeConfig.routing.openAIUpstreamApi).toBe('chat-completions')
+    expect(defaultRuntimeConfig.routing.openAIUpstreamApi).toBe('responses')
+  })
+
   it('loads configurable OpenAI parallel tool calls override', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'co2-parallel-tool-calls-'))
     const configPath = join(directory, 'co2.config.json')

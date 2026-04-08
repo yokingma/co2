@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-04-08
+
+- 为 `c2o /v1/messages` 新增 `routing.openAIUpstreamApi` 配置，允许显式选择 OpenAI 上游使用 `responses` 或 `chat-completions`；默认仍保持 `responses`，从而不破坏现有 Claude Code / Claude-compatible 接入。
+- 补齐 `c2o -> OpenAI chat/completions` 全链路支持：新增 Claude Messages 到 OpenAI Chat Completions 的请求映射、非流式与流式回包反向映射、上游请求日志路径切换，以及对应集成测试/配置测试。
+- 收紧 `c2o -> chat/completions` 的兼容性策略：当同一个 Claude user turn 同时包含 `tool_result` 与后续文本时，转发到 OpenAI Chat 时现在会先输出 `tool` 消息，再起一个新的 `user` 消息承载补充文本，避免生成非法 `user -> tool` 顺序。
+- 调整 `c2o -> chat/completions` 上游请求体为兼容优先：不再强制发送 `stream_options.include_usage`，token 上限改为发送更通用的 `max_tokens`，以提升对只实现基础 Chat Completions 协议的第三方上游兼容性。
+- 修正 `c2o -> OpenAI chat/completions` 的流式 usage 行为：出站流式请求现在会显式携带 `stream_options.include_usage=true`，并等待 OpenAI 最后的 usage-only chunk 后再输出 Claude `message_delta.usage`，避免真实上游场景下丢失准确 token 统计。
+
 ## 2026-04-02
 
 - 发布版本号从 `0.3.0` 提升到 `0.3.1`，并同步更新 README 示例与仓库内示例配置里的 `user-agent` 版本标识。

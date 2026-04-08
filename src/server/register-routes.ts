@@ -4,11 +4,12 @@ import { normalizeOpenAIChatRequest, mapOpenAIChatToClaudeRequest } from '../ada
 import { mapClaudeResponseToOpenAIChatResponse, encodeClaudeStreamToOpenAIChat } from '../adapters/openai-to-claude/map-claude-response-to-chat.js'
 import { normalizeOpenAIResponsesRequest, mapOpenAIResponsesToClaudeRequest } from '../adapters/openai-to-claude/map-responses-request.js'
 import { mapClaudeResponseToOpenAIResponsesResponse, encodeClaudeStreamToOpenAIResponses } from '../adapters/openai-to-claude/map-claude-response-to-responses.js'
-import { normalizeClaudeMessagesRequest, mapClaudeMessagesToOpenAIResponsesRequest } from '../adapters/claude-to-openai/map-messages-request.js'
+import { normalizeClaudeMessagesRequest, mapClaudeMessagesToOpenAIChatRequest, mapClaudeMessagesToOpenAIResponsesRequest } from '../adapters/claude-to-openai/map-messages-request.js'
+import { encodeOpenAIChatCompletionStreamToClaude, mapOpenAIChatCompletionToClaudeResponse } from '../adapters/claude-to-openai/map-openai-chat-to-messages.js'
 import { mapOpenAIResponsesToClaudeResponse, encodeOpenAIResponsesStreamToClaude } from '../adapters/claude-to-openai/map-openai-response-to-messages.js'
 import { createClaudeErrorBody, createOpenAIErrorBody, createNotFoundError, toGatewayError } from '../shared/errors.js'
 import { formatSseEvent } from '../shared/sse.js'
-import type { ClaudeMessagesRequest, Logger, OpenAIResponsesRequest, RuntimeConfig } from '../shared/types.js'
+import type { ClaudeMessagesRequest, Logger, OpenAIChatRequest, OpenAIResponsesRequest, RuntimeConfig } from '../shared/types.js'
 import type { ClaudeUpstreamClient } from '../upstream/claude-client.js'
 import type { OpenAIUpstreamClient } from '../upstream/openai-client.js'
 
@@ -160,6 +161,27 @@ function summarizeOpenAIResponsesRequest(request: OpenAIResponsesRequest): Recor
     hasReasoning: request.reasoning !== undefined,
     reasoningEffort: request.reasoning?.effort ?? null,
     reasoningSummary: request.reasoning?.summary ?? null,
+  }
+}
+
+function summarizeOpenAIChatRequest(request: OpenAIChatRequest): Record<string, unknown> {
+  return {
+    upstreamProvider: 'openai',
+    upstreamPath: '/v1/chat/completions',
+    upstreamModel: request.model,
+    transport: request.stream ? 'sse' : 'json',
+    maxCompletionTokens: request.max_completion_tokens ?? request.max_tokens ?? null,
+    messageCount: request.messages.length,
+    messageRoles: request.messages.map((message) => message.role),
+    hasSystem: request.messages.some((message) => message.role === 'system'),
+    toolCount: request.tools?.length ?? 0,
+    toolNames: request.tools?.map((tool) => tool.function.name) ?? [],
+    toolChoice:
+      typeof request.tool_choice === 'string'
+        ? request.tool_choice
+        : request.tool_choice?.function.name ?? null,
+    reasoningEffort: request.reasoning_effort ?? null,
+    parallelToolCalls: request.parallel_tool_calls ?? null,
   }
 }
 
@@ -350,6 +372,20 @@ export function registerRoutes(
         )
         const normalized = normalizeClaudeMessagesRequest(sanitizedBody, config.server.mode, requestId)
         logNormalizationWarnings(logger, requestId, 'claudeMessages', normalized.warnings)
+        if (config.routing.openAIUpstreamApi === 'chat-completions') {
+          const upstreamRequest = mapClaudeMessagesToOpenAIChatRequest(config, normalized)
+          logUpstreamRequestSummary(logger, 'OpenAI upstream request summary', requestId, summarizeOpenAIChatRequest(upstreamRequest))
+          logUpstreamRequestBody(logger, 'OpenAI upstream request body', requestId, 'openai', '/v1/chat/completions', upstreamRequest as Record<string, unknown>)
+          if (normalized.transport === 'sse') {
+            const upstreamStream = await openAIClient.streamChatCompletion(upstreamRequest)
+            await streamReply(reply, requestId, encodeOpenAIChatCompletionStreamToClaude(upstreamStream, requestId, normalized.model))
+            return reply
+          }
+          const upstreamResponse = await openAIClient.createChatCompletion(upstreamRequest)
+          setCommonHeaders(reply, requestId)
+          return reply.send(mapOpenAIChatCompletionToClaudeResponse(upstreamResponse, normalized.model))
+        }
+
         const upstreamRequest = mapClaudeMessagesToOpenAIResponsesRequest(config, normalized)
         logUpstreamRequestSummary(logger, 'OpenAI upstream request summary', requestId, summarizeOpenAIResponsesRequest(upstreamRequest))
         logUpstreamRequestBody(logger, 'OpenAI upstream request body', requestId, 'openai', '/v1/responses', upstreamRequest as Record<string, unknown>)

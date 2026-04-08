@@ -14,9 +14,13 @@ import type {
   ClaudeOutputEffort,
   NormalizedRequest,
   NormalizedToolDefinition,
+  OpenAIChatImageUrlContentPart,
+  OpenAIChatMessage,
+  OpenAIChatTextContentPart,
+  OpenAIChatToolChoiceObject,
+  OpenAIFunctionTool,
   OpenAIResponsesInputImage,
   OpenAIReasoningConfig,
-  OpenAIUpstreamReasoningConfig,
   OpenAIResponsesInputItem,
   OpenAIResponsesTool,
   OpenAIResponsesToolChoice,
@@ -248,6 +252,23 @@ export function toResponsesToolChoice(toolChoice: ToolChoice | undefined): OpenA
   }
 }
 
+export function toChatToolChoice(toolChoice: ToolChoice | undefined): 'auto' | 'none' | 'required' | OpenAIChatToolChoiceObject | undefined {
+  if (!toolChoice) {
+    return undefined
+  }
+
+  if (typeof toolChoice === 'string') {
+    return toolChoice
+  }
+
+  return {
+    type: 'function',
+    function: {
+      name: toolChoice.name,
+    },
+  }
+}
+
 function thinkingBudgetToReasoningEffort(budgetTokens: number): OpenAIReasoningConfig['effort'] {
   if (budgetTokens >= 8192) {
     return 'xhigh'
@@ -369,7 +390,7 @@ function resolveClaudeOutputEffort(
 function resolveOpenAIReasoning(
   config: RuntimeConfig,
   request: NormalizedRequest,
-): OpenAIUpstreamReasoningConfig | undefined {
+): OpenAIReasoningConfig | undefined {
   if (request.reasoning) {
     return request.reasoning
   }
@@ -379,6 +400,25 @@ function resolveOpenAIReasoning(
   }
 
   return { effort: config.routing.openAIReasoningEffort }
+}
+
+function resolveOpenAIChatReasoningEffort(
+  config: RuntimeConfig,
+  request: NormalizedRequest,
+): OpenAIReasoningConfig['effort'] | undefined {
+  const effort = resolveOpenAIReasoning(config, request)?.effort
+
+  switch (effort) {
+    case 'none':
+    case 'minimal':
+    case 'low':
+    case 'medium':
+    case 'high':
+    case 'xhigh':
+      return effort
+    default:
+      return undefined
+  }
 }
 
 function resolveOpenAIParallelToolCalls(
@@ -407,6 +447,17 @@ export function normalizedToolsToResponsesTools(tools: NormalizedToolDefinition[
     description: tool.description,
     parameters: tool.inputSchema,
     strict: false,
+  }))
+}
+
+export function normalizedToolsToChatTools(tools: NormalizedToolDefinition[]): OpenAIFunctionTool[] {
+  return tools.map((tool) => ({
+    type: 'function',
+    function: {
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.inputSchema,
+    },
   }))
 }
 
@@ -548,6 +599,105 @@ export function normalizedMessagesToResponsesInput(messages: NormalizedMessage[]
   return items
 }
 
+function toChatUserContent(
+  parts: NormalizedContentPart[],
+): string | Array<OpenAIChatTextContentPart | OpenAIChatImageUrlContentPart> | undefined {
+  const content: Array<OpenAIChatTextContentPart | OpenAIChatImageUrlContentPart> = []
+
+  for (const part of parts) {
+    if (part.type === 'text') {
+      content.push({
+        type: 'text',
+        text: part.text,
+      })
+      continue
+    }
+
+    if (part.type === 'image') {
+      content.push({
+        type: 'image_url',
+        image_url: {
+          url: part.source.type === 'url'
+            ? part.source.url
+            : `data:${part.source.mediaType};base64,${part.source.data}`,
+        },
+      })
+    }
+  }
+
+  if (content.length === 0) {
+    return undefined
+  }
+
+  if (content.every((part) => part.type === 'text')) {
+    return content.map((part) => part.text).join('')
+  }
+
+  return content
+}
+
+export function normalizedMessagesToChatMessages(messages: NormalizedMessage[]): OpenAIChatMessage[] {
+  const chatMessages: OpenAIChatMessage[] = []
+
+  for (const message of messages) {
+    if (message.role === 'system') {
+      const content = collectText(message.parts)
+      if (content.length > 0) {
+        chatMessages.push({
+          role: 'system',
+          content,
+        })
+      }
+      continue
+    }
+
+    if (message.role === 'assistant') {
+      const content = collectText(message.parts)
+      const toolCalls = message.parts.flatMap((part) => part.type === 'tool-call'
+        ? [{
+            id: part.id,
+            type: 'function' as const,
+            function: {
+              name: part.name,
+              arguments: part.argumentsJson,
+            },
+          }]
+        : [])
+
+      if (content.length > 0 || toolCalls.length > 0) {
+        chatMessages.push({
+          role: 'assistant',
+          content: content.length > 0 ? content : null,
+          ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
+        })
+      }
+      continue
+    }
+
+    if (message.role === 'user') {
+      const userContent = toChatUserContent(message.parts)
+      for (const part of message.parts) {
+        if (part.type === 'tool-result') {
+          chatMessages.push({
+            role: 'tool',
+            content: part.output,
+            tool_call_id: part.toolCallId,
+          })
+        }
+      }
+
+      if (userContent !== undefined) {
+        chatMessages.push({
+          role: 'user',
+          content: userContent,
+        })
+      }
+    }
+  }
+
+  return chatMessages
+}
+
 export function buildAnthropicMessagesRequest(config: RuntimeConfig, request: NormalizedRequest): ClaudeMessagesRequest {
   const outputEffort = resolveClaudeOutputEffort(config, request)
   const requestThinking = mapOpenAIReasoningToClaudeThinking(request.reasoning)
@@ -581,5 +731,21 @@ export function buildOpenAIResponsesRequest(config: RuntimeConfig, request: Norm
     max_output_tokens: request.maxOutputTokens,
     temperature: request.temperature,
     top_p: request.topP,
+  }
+}
+
+export function buildOpenAIChatRequest(config: RuntimeConfig, request: NormalizedRequest): import('../shared/types.js').OpenAIChatRequest {
+  return {
+    model: resolveTargetModel(config, request.model, request.mode),
+    messages: normalizedMessagesToChatMessages(request.messages),
+    tools: request.tools.length > 0 ? normalizedToolsToChatTools(request.tools) : undefined,
+    tool_choice: toChatToolChoice(request.toolChoice),
+    stream: request.transport === 'sse',
+    temperature: request.temperature,
+    top_p: request.topP,
+    stop: request.stopSequences,
+    reasoning_effort: resolveOpenAIChatReasoningEffort(config, request),
+    max_tokens: request.maxOutputTokens,
+    parallel_tool_calls: resolveOpenAIParallelToolCalls(config, request),
   }
 }

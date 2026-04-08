@@ -5,6 +5,7 @@ import {
   DEFAULT_HOST,
   DEFAULT_LOG_LEVEL,
   DEFAULT_OPENAI_BASE_URL,
+  DEFAULT_OPENAI_UPSTREAM_API,
   DEFAULT_PORT,
 } from '../shared/contracts.js'
 
@@ -13,6 +14,8 @@ const logLevelSchema = z.enum(['debug', 'info', 'warn', 'error'])
 const portSchema = z.number().int().min(1).max(65535)
 const defaultHeadersSchema = z.record(z.string().min(1), z.string())
 const claudeOutputEffortSchema = z.enum(['low', 'medium', 'high', 'max'])
+const openAIReasoningEffortSchema = z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh'])
+const openAIUpstreamApiSchema = z.enum(['responses', 'chat-completions'])
 const inboundFieldSkipListSchema = z.array(z.string().min(1))
 const skipInboundFieldsSchema = z.strictObject({
   claudeMessages: inboundFieldSkipListSchema.default([]),
@@ -66,7 +69,8 @@ export const configFileSchema = z.strictObject({
       defaultOpenAIModel: z.string().min(1).optional(),
       defaultClaudeModel: z.string().min(1).optional(),
       claudeOutputEffort: claudeOutputEffortSchema.optional(),
-      openAIReasoningEffort: z.string().min(1).optional(),
+      openAIReasoningEffort: openAIReasoningEffortSchema.optional(),
+      openAIUpstreamApi: openAIUpstreamApiSchema.optional(),
       openAIParallelToolCalls: z.boolean().optional(),
       skipInboundFields: skipInboundFieldsSchema.optional(),
     })
@@ -98,7 +102,8 @@ export const runtimeConfigSchema = z.strictObject({
     defaultOpenAIModel: z.string().min(1).optional(),
     defaultClaudeModel: z.string().min(1).optional(),
     claudeOutputEffort: claudeOutputEffortSchema.optional(),
-    openAIReasoningEffort: z.string().min(1).optional(),
+    openAIReasoningEffort: openAIReasoningEffortSchema.optional(),
+    openAIUpstreamApi: openAIUpstreamApiSchema.default(DEFAULT_OPENAI_UPSTREAM_API),
     openAIParallelToolCalls: z.boolean().optional(),
     skipInboundFields: skipInboundFieldsSchema.default({
       claudeMessages: [],

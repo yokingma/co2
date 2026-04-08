@@ -1,4 +1,4 @@
-import type { GatewayMode, InboundContract, LogLevel, ToolChoice, TransportKind } from './contracts.js'
+import type { GatewayMode, InboundContract, LogLevel, OpenAIUpstreamApi, ToolChoice, TransportKind } from './contracts.js'
 
 export type MessageRole = 'system' | 'user' | 'assistant' | 'tool'
 
@@ -151,7 +151,8 @@ export type RuntimeConfig = {
     defaultOpenAIModel?: string
     defaultClaudeModel?: string
     claudeOutputEffort?: ClaudeOutputEffort
-    openAIReasoningEffort?: string
+    openAIReasoningEffort?: ReasoningEffort
+    openAIUpstreamApi: OpenAIUpstreamApi
     openAIParallelToolCalls?: boolean
     skipInboundFields: {
       claudeMessages: string[]
@@ -243,6 +244,62 @@ export type OpenAIChatRequest = {
   max_completion_tokens?: number
   max_tokens?: number
   parallel_tool_calls?: boolean
+}
+
+export type OpenAIChatCompletionChoice = {
+  index: number
+  message: {
+    role: 'assistant'
+    content?: string | null
+    tool_calls?: OpenAIChatToolCall[]
+  }
+  finish_reason?: string | null
+}
+
+export type OpenAIChatCompletionResponse = {
+  id: string
+  object: 'chat.completion'
+  created?: number
+  model: string
+  choices: OpenAIChatCompletionChoice[]
+  usage?: {
+    prompt_tokens?: number
+    completion_tokens?: number
+    total_tokens?: number
+  }
+}
+
+export type OpenAIChatChunkToolCall = {
+  index?: number
+  id?: string
+  type?: 'function'
+  function?: {
+    name?: string
+    arguments?: string
+  }
+}
+
+export type OpenAIChatChunkChoice = {
+  index: number
+  delta?: {
+    role?: 'assistant'
+    content?: string
+    tool_calls?: OpenAIChatChunkToolCall[]
+  }
+  finish_reason?: string | null
+}
+
+export type OpenAIChatCompletionChunk = {
+  id: string
+  object: 'chat.completion.chunk'
+  created?: number
+  model: string
+  choices: OpenAIChatChunkChoice[]
+  usage?: {
+    prompt_tokens?: number
+    completion_tokens?: number
+    total_tokens?: number
+  } | null
 }
 
 export type OpenAIResponsesTool = {

@@ -3,6 +3,62 @@ import { createServer } from '../../src/server/create-server.js'
 import { createCapturingLogger, createClaudeClient, createOpenAIClient, createRuntimeConfig, createSilentLogger } from '../helpers.js'
 
 describe('c2o messages', () => {
+  it('maps Claude text request to OpenAI chat completions upstream and back when configured', async () => {
+    const createChatCompletion = vi.fn(async (request) => ({
+      id: 'chatcmpl_message_text',
+      object: 'chat.completion',
+      created: 1_760_000_000,
+      model: request.model,
+      choices: [{
+        index: 0,
+        message: {
+          role: 'assistant',
+          content: 'claude compatible via chat',
+        },
+        finish_reason: 'stop',
+      }],
+      usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
+    }))
+
+    const runtimeConfig = createRuntimeConfig('claude-to-openai') as ReturnType<typeof createRuntimeConfig> & {
+      routing: ReturnType<typeof createRuntimeConfig>['routing'] & {
+        openAIUpstreamApi?: 'responses' | 'chat-completions'
+      }
+    }
+    runtimeConfig.routing.openAIUpstreamApi = 'chat-completions'
+
+    const server = createServer(runtimeConfig, {
+      logger: createSilentLogger(),
+      claudeClient: createClaudeClient({}),
+      openAIClient: createOpenAIClient({ createChatCompletion }),
+    })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/messages',
+      payload: {
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 128,
+        messages: [{ role: 'user', content: 'hello' }],
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(createChatCompletion).toHaveBeenCalled()
+    expect(createChatCompletion.mock.calls[0][0]).toMatchObject({
+      model: 'gpt-4.1',
+      messages: [{
+        role: 'user',
+        content: 'hello',
+      }],
+      max_tokens: 128,
+      stream: false,
+    })
+    expect((createChatCompletion.mock.calls[0][0] as Record<string, unknown>).max_completion_tokens).toBeUndefined()
+    expect(response.json().content[0].text).toBe('claude compatible via chat')
+    await server.close()
+  })
+
   it('maps Claude text request to OpenAI responses upstream and back', async () => {
     const createResponse = vi.fn(async (request) => ({
       id: 'resp_message_text',
@@ -37,6 +93,156 @@ describe('c2o messages', () => {
     expect(createResponse).toHaveBeenCalled()
     expect(createResponse.mock.calls[0][0].model).toBe('gpt-4.1')
     expect(response.json().content[0].text).toBe('claude compatible')
+    await server.close()
+  })
+
+  it('maps OpenAI chat completion tool_calls output to Claude tool_use when configured', async () => {
+    const createChatCompletion = vi.fn(async (request) => ({
+      id: 'chatcmpl_message_tool',
+      object: 'chat.completion',
+      created: 1_760_000_000,
+      model: request.model,
+      choices: [{
+        index: 0,
+        message: {
+          role: 'assistant',
+          content: null,
+          tool_calls: [{
+            id: 'call_123',
+            type: 'function',
+            function: {
+              name: 'get_weather',
+              arguments: '{"city":"Shanghai"}',
+            },
+          }],
+        },
+        finish_reason: 'tool_calls',
+      }],
+      usage: { prompt_tokens: 3, completion_tokens: 4, total_tokens: 7 },
+    }))
+
+    const runtimeConfig = createRuntimeConfig('claude-to-openai') as ReturnType<typeof createRuntimeConfig> & {
+      routing: ReturnType<typeof createRuntimeConfig>['routing'] & {
+        openAIUpstreamApi?: 'responses' | 'chat-completions'
+      }
+    }
+    runtimeConfig.routing.openAIUpstreamApi = 'chat-completions'
+
+    const server = createServer(runtimeConfig, {
+      logger: createSilentLogger(),
+      claudeClient: createClaudeClient({}),
+      openAIClient: createOpenAIClient({ createChatCompletion }),
+    })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/messages',
+      payload: {
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 128,
+        tools: [{ name: 'get_weather', input_schema: { type: 'object' } }],
+        messages: [{ role: 'user', content: 'call tool' }],
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(createChatCompletion).toHaveBeenCalled()
+    expect(createChatCompletion.mock.calls[0][0]).toMatchObject({
+      model: 'gpt-4.1',
+      tool_choice: 'auto',
+      tools: [{
+        type: 'function',
+        function: {
+          name: 'get_weather',
+        },
+      }],
+    })
+    expect(response.json().stop_reason).toBe('tool_use')
+    expect(response.json().content[0]).toMatchObject({
+      type: 'tool_use',
+      id: 'call_123',
+      name: 'get_weather',
+      input: { city: 'Shanghai' },
+    })
+    await server.close()
+  })
+
+  it('orders tool results before a follow-up user message for chat completions upstream', async () => {
+    const createChatCompletion = vi.fn(async (request) => ({
+      id: 'chatcmpl_tool_result_then_user_text',
+      object: 'chat.completion',
+      created: 1_760_000_000,
+      model: request.model,
+      choices: [{
+        index: 0,
+        message: {
+          role: 'assistant',
+          content: 'done',
+        },
+        finish_reason: 'stop',
+      }],
+      usage: { prompt_tokens: 12, completion_tokens: 3, total_tokens: 15 },
+    }))
+
+    const runtimeConfig = createRuntimeConfig('claude-to-openai')
+    runtimeConfig.routing.openAIUpstreamApi = 'chat-completions'
+
+    const server = createServer(runtimeConfig, {
+      logger: createSilentLogger(),
+      claudeClient: createClaudeClient({}),
+      openAIClient: createOpenAIClient({ createChatCompletion }),
+    })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/messages',
+      payload: {
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 128,
+        messages: [
+          {
+            role: 'assistant',
+            content: [
+              { type: 'tool_use', id: 'call_1', name: 'get_weather', input: { city: 'Shanghai' } },
+            ],
+          },
+          {
+            role: 'user',
+            content: [
+              { type: 'tool_result', tool_use_id: 'call_1', content: '{"temp":25}' },
+              { type: 'text', text: '继续总结' },
+            ],
+          },
+        ],
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(createChatCompletion).toHaveBeenCalledWith(expect.objectContaining({
+      messages: [
+        {
+          role: 'assistant',
+          content: null,
+          tool_calls: [{
+            id: 'call_1',
+            type: 'function',
+            function: {
+              name: 'get_weather',
+              arguments: '{"city":"Shanghai"}',
+            },
+          }],
+        },
+        {
+          role: 'tool',
+          content: '{"temp":25}',
+          tool_call_id: 'call_1',
+        },
+        {
+          role: 'user',
+          content: '继续总结',
+        },
+      ],
+    }))
     await server.close()
   })
 

@@ -92,6 +92,7 @@ export async function loadRuntimeConfig(input: unknown): Promise<RuntimeConfig> 
       defaultClaudeModel: configInput.routing?.defaultClaudeModel,
       claudeOutputEffort: configInput.routing?.claudeOutputEffort,
       openAIReasoningEffort: configInput.routing?.openAIReasoningEffort,
+      openAIUpstreamApi: configInput.routing?.openAIUpstreamApi,
       openAIParallelToolCalls: configInput.routing?.openAIParallelToolCalls,
       skipInboundFields: {
         claudeMessages: configInput.routing?.skipInboundFields?.claudeMessages,

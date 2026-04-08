@@ -1,5 +1,6 @@
 import { claudeMessagesSchema, claudeMessagesTopLevelKeys } from '../../schemas/claude/messages-schema.js'
 import {
+  buildOpenAIChatRequest,
   buildOpenAIResponsesRequest,
   createImagePart,
   createNormalizationWarning,
@@ -264,4 +265,8 @@ export function normalizeClaudeMessagesRequest(body: unknown, mode: RuntimeConfi
 
 export function mapClaudeMessagesToOpenAIResponsesRequest(config: RuntimeConfig, request: NormalizedRequest) {
   return buildOpenAIResponsesRequest(config, request)
+}
+
+export function mapClaudeMessagesToOpenAIChatRequest(config: RuntimeConfig, request: NormalizedRequest) {
+  return buildOpenAIChatRequest(config, request)
 }

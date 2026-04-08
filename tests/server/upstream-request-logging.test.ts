@@ -151,6 +151,104 @@ describe('upstream request summary logging', () => {
     await server.close()
   })
 
+  it('logs safe OpenAI chat completions upstream request summary for c2o messages when configured', async () => {
+    const { entries, logger } = createCapturingLogger()
+
+    const runtimeConfig = createRuntimeConfig('claude-to-openai')
+    runtimeConfig.routing.openAIUpstreamApi = 'chat-completions'
+
+    const server = createServer(runtimeConfig, {
+      logger,
+      claudeClient: createClaudeClient({}),
+      openAIClient: createOpenAIClient({
+        createChatCompletion: async () => ({
+          id: 'chatcmpl_summary',
+          object: 'chat.completion',
+          model: 'gpt-4.1',
+          choices: [{
+            index: 0,
+            message: {
+              role: 'assistant',
+              content: 'ok',
+            },
+            finish_reason: 'stop',
+          }],
+          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+        }),
+      }),
+    })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/messages',
+      payload: {
+        model: 'claude-opus-4.6',
+        max_tokens: 2048,
+        system: 'You are concise.',
+        tools: [
+          {
+            name: 'get_weather',
+            input_schema: {
+              type: 'object',
+              properties: { city: { type: 'string' } },
+            },
+          },
+        ],
+        messages: [{ role: 'user', content: 'hello' }],
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    const logEntry = entries.find((entry) => entry.message === 'OpenAI upstream request summary')
+    expect(logEntry).toBeDefined()
+    expect(logEntry?.data).toMatchObject({
+      upstreamProvider: 'openai',
+      upstreamPath: '/v1/chat/completions',
+      upstreamModel: 'gpt-4.1',
+      transport: 'json',
+      maxCompletionTokens: 2048,
+      messageRoles: ['system', 'user'],
+      toolCount: 1,
+      toolNames: ['get_weather'],
+      toolChoice: 'auto',
+      reasoningEffort: null,
+    })
+
+    const bodyLogEntry = entries.find((entry) => entry.message === 'OpenAI upstream request body')
+    expect(bodyLogEntry).toBeDefined()
+    expect(bodyLogEntry?.data).toMatchObject({
+      upstreamProvider: 'openai',
+      upstreamPath: '/v1/chat/completions',
+      body: {
+        model: 'gpt-4.1',
+        max_tokens: 2048,
+        stream: false,
+        tool_choice: 'auto',
+        messages: [
+          {
+            role: 'system',
+            content: 'You are concise.',
+          },
+          {
+            role: 'user',
+            content: 'hello',
+          },
+        ],
+        tools: [
+          {
+            type: 'function',
+            function: {
+              name: 'get_weather',
+            },
+          },
+        ],
+      },
+    })
+    expect((bodyLogEntry?.data?.body as Record<string, unknown>).max_completion_tokens).toBeUndefined()
+
+    await server.close()
+  })
+
   it('warns when configured inbound fields are skipped before c2o normalization', async () => {
     const { entries, logger } = createCapturingLogger()
 

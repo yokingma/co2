@@ -4,6 +4,7 @@ export const DEFAULT_LOG_LEVEL = 'info' as const
 export const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1'
 export const DEFAULT_ANTHROPIC_BASE_URL = 'https://api.anthropic.com'
 export const DEFAULT_ANTHROPIC_VERSION = '2023-06-01'
+export const DEFAULT_OPENAI_UPSTREAM_API = 'responses' as const
 
 export const MODE_ALIASES = {
   o2c: 'openai-to-claude',
@@ -16,6 +17,7 @@ export type InboundContract = 'chat-completions' | 'responses' | 'messages'
 export type TransportKind = 'json' | 'sse'
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 export type ToolChoice = 'auto' | 'none' | 'required' | { name: string }
+export type OpenAIUpstreamApi = 'responses' | 'chat-completions'
 
 export function isGatewayModeAlias(value: string): value is GatewayModeAlias {
   return value === 'o2c' || value === 'c2o'

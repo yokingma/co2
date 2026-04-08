@@ -18,6 +18,7 @@
 
 - `o2c` 同时暴露 `chat/completions` 与 `responses`。
 - `c2o` 默认以上游 OpenAI `responses` contract 为目标。
+- `c2o` 允许通过 `routing.openAIUpstreamApi` 显式切换上游 OpenAI contract；默认继续走 `responses`，只有在用户明确配置 `chat-completions` 时才改走 `/v1/chat/completions`。
 - 核心工具调用仅支持函数 / JSON Schema 子集；并行工具与内建工具进入 `V2`。
 - 边界层顶层字段默认采用“分级兼容”而不是全量严格：已知可本地消费或可无损忽略的字段进入显式 allowlist；已知但语义敏感且当前无等价映射的字段必须稳定返回 `unsupported_parameter`；真正未知且不像 typo 的扩展字段可先忽略以保持前向兼容；疑似拼写错误仍应直接报 `Unrecognized key`。
 - 对不支持但语义敏感的字段，必须在边界层返回稳定错误并指出参数名，例如 `previous_response_id`、`conversation`、`parallel_tool_calls=true`、`top_k`，而不是把请求原样推给上游后再吃随机 `400`。
@@ -42,8 +43,12 @@
 - `o2c /v1/chat/completions` 只有在请求显式传 `stream_options.include_usage = true` 时，才应追加官方风格的最终 usage chunk；未开启时不得在流里注入 usage。
 - `o2c /v1/chat/completions` 的 `stream_options` 必须保持显式 allowlist 且严格校验；当前仅接受 `include_usage`，未知嵌套字段应直接报 `Unrecognized key`，避免客户端拼写错误被静默放过。
 - `c2o /v1/messages` 在桥接 OpenAI Responses 流时，不得伪造中途累计 usage；应在拿到最终 `response.completed.usage` 后，把准确的 `input_tokens/output_tokens` 写入最后一个 Claude `message_delta.usage`。
+- `c2o /v1/messages` 若配置走 OpenAI `chat/completions` 上游，仍需保持对外 Claude `messages` 语义不变：工具调用返回 Claude `tool_use`，流式返回 Claude `message_start/content_block_delta/message_delta/message_stop`，并在最终 `message_delta` 里回写准确 usage。
+- `c2o -> chat/completions` 的请求体应以第三方兼容优先：优先使用更广泛支持的 `max_tokens`，不要默认强制附带 `stream_options` 这类较新的扩展字段；如果上游流里主动给出 usage chunk，则在最终 Claude `message_delta` 回写 usage，没有时则回写空缺省值而不是伪造统计。
+- 当 Claude user turn 同时携带 `tool_result` 和后续补充文本时，映射到 OpenAI Chat 必须先输出 `role: "tool"` 消息，再单独输出新的 `role: "user"` 消息；禁止生成 `user` 后跟 `tool` 的非法顺序。
 - `o2c` 可通过 `routing.claudeOutputEffort` 仅为完全未传 `reasoning` 的请求补默认 Claude `output_config.effort`；若请求已显式传 `reasoning`（包括只有 `summary` 或 `effort: 'none'`），必须以请求映射结果为准，且默认值生效时必须同时补 `thinking: { type: 'adaptive' }`。
 - `c2o` 可通过 `routing.openAIReasoningEffort` 为未显式传 `thinking` 的请求补默认 OpenAI `reasoning.effort`；若请求已有 `thinking/reasoning`，必须以请求值优先。
+- `c2o` 的 `routing.openAIReasoningEffort` 需要按所选上游 contract 做字段级映射：走 `responses` 时下发 `reasoning.effort`，走 `chat/completions` 时下发 `reasoning_effort`，不能把一侧专属字段错误透传到另一侧。
 - `c2o /v1/messages` 需显式兼容 Claude `output_config.effort`；它属于可本地消费的控制面字段，必须近似映射到 OpenAI `responses.reasoning.effort`，且当请求同时携带 `thinking` 与 `output_config.effort` 时，以显式 `output_config.effort` 为准。
 - `c2o /v1/messages` 不应因为 Anthropic 新增的普通顶层扩展字段就频繁发版；但像 `context_management` 这类会影响上下文裁剪的字段也不能默认静默吞掉。未配置跳过时，必须在本地显式报 `unsupported_parameter`，避免客户端误以为语义已生效。
 - 若需要兼容真实客户端已知会发送、但当前网关暂不支持语义的新增顶层字段，应优先通过 `routing.skipInboundFields` 做“按入口协议、按字段名”的显式跳过，而不是继续放宽全局 schema。跳过只允许精确命中顶层字段，并必须输出 `warn` 日志；未配置的字段仍按原有边界规则处理。

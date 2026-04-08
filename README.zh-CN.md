@@ -35,7 +35,7 @@ npx @fastagent/co2 start --config ./co2.config.json
       "apiKey": "OPENAI_API_KEY_PLACEHOLDER",
       "baseUrl": "https://api.openai.com/v1",
       "defaultHeaders": {
-        "user-agent": "co2-cli/0.3.1"
+        "user-agent": "co2-cli/0.3.2"
       }
     },
     "anthropic": {
@@ -43,7 +43,7 @@ npx @fastagent/co2 start --config ./co2.config.json
       "baseUrl": "https://api.anthropic.com",
       "version": "2023-06-01",
       "defaultHeaders": {
-        "user-agent": "co2-cli/0.3.1"
+        "user-agent": "co2-cli/0.3.2"
       }
     }
   },
@@ -51,6 +51,7 @@ npx @fastagent/co2 start --config ./co2.config.json
     "defaultOpenAIModel": "gpt-5.4",
     "defaultClaudeModel": "claude-opus-4.6",
     "openAIReasoningEffort": "high",
+    "openAIUpstreamApi": "responses",
     "openAIParallelToolCalls": true,
     "claudeOutputEffort": "high",
     "skipInboundFields": {
@@ -71,7 +72,8 @@ npx @fastagent/co2 start --config ./co2.config.json
 - 上面的配置示例同时展示了 `openai` 和 `anthropic` 两个 provider，只是为了把完整结构一次写全。
 - 选择 `openai-to-claude` / `o2c` 模式时，实际只会使用 `providers.anthropic`；`providers.openai` 可以省略，不会影响启动和请求处理。
 - 选择 `claude-to-openai` / `c2o` 模式时，实际只会使用 `providers.openai`；`providers.anthropic` 可以省略，不会影响启动和请求处理。
-- `routing.defaultClaudeModel` / `routing.claudeOutputEffort` 只影响 `o2c`，`routing.defaultOpenAIModel` / `routing.openAIReasoningEffort` / `routing.openAIParallelToolCalls` 只影响 `c2o`。
+- `routing.defaultClaudeModel` / `routing.claudeOutputEffort` 只影响 `o2c`，`routing.defaultOpenAIModel` / `routing.openAIReasoningEffort` / `routing.openAIUpstreamApi` / `routing.openAIParallelToolCalls` 只影响 `c2o`。
+- `routing.openAIUpstreamApi` 用来显式选择 `c2o` 的 OpenAI 上游 contract：默认是 `responses`；如果你的 OpenAI-compatible 上游只暴露 `POST /v1/chat/completions`，例如想把 Claude Code 通过 `c2o` 接到一个只兼容 Chat Completions 的网关，就把它设成 `chat-completions`。
 - `routing.openAIParallelToolCalls` 是 `c2o` 工具请求的全局硬覆盖：不配置时，`co2` 不会发送 `parallel_tool_calls`；配置为 `true` 或 `false` 时，只有在请求包含工具时才会按该值原样转发给 OpenAI。
 - `routing.skipInboundFields` 用来显式跳过已知的顶层请求字段，这样本地网关在遇到新版 SDK / 客户端新增字段时，可以先靠配置保持可用，不必等待 `co2` 发布新版本。
 
